@@ -13,43 +13,12 @@
 
 namespace RedisSubscribe
 {
-  class Exception
-  {
-  protected:
-    /** Error message.
-     */
-    std::string msg_;
-
-  public:
-    explicit Exception(const char *message) : msg_(message)
-    {
-    }
-
-    /** Constructor (C++ STL strings).
-     *  @param message The error message.
-     */
-    explicit Exception(const std::string &message) : msg_(message) {}
-
-    /** Destructor.
-     * Virtual to allow for subclassing.
-     */
-    virtual ~Exception() throw() {}
-
-    /** Returns a pointer to the (constant) error description.
-     *  @return A pointer to a const char*. The underlying memory
-     *          is in posession of the Exception object. Callers must
-     *          not attempt to free the memory.
-     */
-    virtual const char *what() const throw()
-    {
-      return msg_.c_str();
-    }
-  };
 
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
   static const char *REDIS_CHANNEL = std::getenv("REDIS_CHANNEL");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
+  static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const int CONNECTION_RETRY_AMOUNT = -1;
   static const int CONNECTION_RETRY_DELAY = 3;
 
@@ -72,7 +41,14 @@ namespace RedisSubscribe
 
     return result;
   }
+
 #if defined(BOOST_ASIO_HAS_CO_AWAIT)
+
+  auto verify_certificate(bool, asio::ssl::verify_context&) -> bool
+  {
+    std::cout << "set_verify_callback" << std::endl;
+    return true;
+  }
 
   Subscribe::Subscribe() : m_ioc{3},
                            m_conn{}, //(std::make_shared<redis::connection>(m_ioc)),
@@ -82,9 +58,9 @@ namespace RedisSubscribe
                            m_isConnected{0}
   {
     D(std::cerr << "Subscribe created\n";)
-    if (REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_CHANNEL == nullptr || REDIS_PASSWORD == nullptr)
+    if (REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_CHANNEL == nullptr || REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
     {
-      throw Exception("Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, and REDIS_PASSWORD must be set.");
+      throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
   }
 
@@ -116,10 +92,16 @@ namespace RedisSubscribe
     req.push_range("SUBSCRIBE", channels);
 
     redis::generic_response resp;
-    m_conn->set_receive_response(resp);
     D(std::cout << "- Subscribe::receiver try connenct" << std::endl;)
 
     // Reconnect to channels.
+    if (REDIS_USE_SSL == "on")
+    {
+      m_conn->next_layer().set_verify_mode(asio::ssl::verify_peer);
+      m_conn->next_layer().set_verify_callback(verify_certificate);
+    }
+    m_conn->set_receive_response(resp);
+
     // req.get_config().cancel_if_not_connected = true;
     co_await m_conn->async_exec(req, redis::ignore, asio::deferred);
 
@@ -235,6 +217,10 @@ namespace RedisSubscribe
     cfg.addr.host = REDIS_HOST;
     cfg.addr.port = REDIS_PORT;
     cfg.password = REDIS_PASSWORD;
+    if (REDIS_USE_SSL == "on")
+    {
+      cfg.use_ssl = true;
+    }
 
     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
 #if defined(SIGQUIT)

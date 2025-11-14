@@ -10,6 +10,8 @@
 #include <boost/redis/connection.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <boost/redis/src.hpp> // boost redis implementation
+#include <string>
+#include <stdexcept>
 
 int main(int argc, char **argv)
 {
@@ -19,36 +21,37 @@ int main(int argc, char **argv)
   const char *redis_port = std::getenv("REDIS_PORT");
   const char *redis_channel = std::getenv("REDIS_CHANNEL");
   const char *redis_password = std::getenv("REDIS_PASSWORD");
+  const char *redis_use_ssl = std::getenv("REDIS_USE_SSL");
 
-  if (!(redis_host && redis_port && redis_password && redis_channel))
+  if (!(redis_host && redis_port && redis_password && redis_channel && redis_use_ssl))
   {
-    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL or REDIS_PASSWORD are not set." << std::endl;
+    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
     exit(1);
   }
 
   boost::asio::io_context main_ioc;
   boost::asio::signal_set sig_set(main_ioc.get_executor(), SIGINT, SIGTERM);
-  AwakenerWaitable awakener;
-  bool m_worker_shall_stop{false}; // false
-
 #if defined(SIGQUIT)
-  sig_set.add(SIGQUIT);
+   sig_set.add(SIGQUIT);
 #endif // defined(SIGQUIT)
 
-  std::cout << "co_main wait to signal" << std::endl;
-  sig_set.async_wait(
-      [&](const boost::system::error_code &, int)
-      {
-        m_worker_shall_stop = 1;
-        awakener.stop();
-      });
-
-  auto main_ioc_thread = std::thread([&main_ioc]()
-                                     { main_ioc.run(); });
+  AwakenerWaitable awakener;
+  bool m_worker_shall_stop{false}; // false
 
   try
   {
     RedisSubscribe::Subscribe redisSubscribe;
+
+    sig_set.async_wait(
+        [&](const boost::system::error_code &, int)
+        {
+          m_worker_shall_stop = 1;
+          awakener.stop();
+        });
+
+    auto main_ioc_thread = std::thread([&main_ioc]()
+                                     { main_ioc.run(); });
+
     redisSubscribe.main_redis(awakener);
 
     std::cout << "Application loop stated\n";
@@ -69,6 +72,7 @@ int main(int argc, char **argv)
     {
       main_ioc_thread.join();
     }
+
   }
   catch (const std::exception &e)
   {
