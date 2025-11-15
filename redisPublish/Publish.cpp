@@ -95,7 +95,7 @@ namespace RedisPublish
   }
 
   Publish::Publish() : m_ioc{2},
-                       m_conn{}, //(std::make_shared<connection>(m_ioc)),
+                      //   m_conn{}, //(std::make_shared<connection>(m_ioc)),
                        msg_queue{},
                        m_signalStatus{0},
                        m_isConnected{0},
@@ -277,9 +277,7 @@ namespace RedisPublish
 
     for (;;)
     {
-      // m_isConnected == 0;
       m_conn = std::make_shared<redis::connection>(ex);
-
       m_conn->async_run(cfg, redis::logger{redis::logger::level::err}, asio::consign(asio::detached, m_conn));
 
       try
