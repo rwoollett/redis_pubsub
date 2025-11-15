@@ -95,8 +95,10 @@ namespace RedisSubscribe
     D(std::cout << "- Subscribe::receiver try connenct" << std::endl;)
 
     // Reconnect to channels.
-    if (REDIS_USE_SSL == "on")
+    std::cout << "Configure ssl env is " << REDIS_USE_SSL << "\n";
+    if (std::string(REDIS_USE_SSL) == "on")
     {
+      std::cout << "Configure ssl next layer\n";
       m_conn->next_layer().set_verify_mode(asio::ssl::verify_peer);
       m_conn->next_layer().set_verify_callback(verify_certificate);
     }
@@ -217,8 +219,9 @@ namespace RedisSubscribe
     cfg.addr.host = REDIS_HOST;
     cfg.addr.port = REDIS_PORT;
     cfg.password = REDIS_PASSWORD;
-    if (REDIS_USE_SSL == "on")
+    if (std::string(REDIS_USE_SSL) == "on")
     {
+      std::cout << "Configure ssl\n";
       cfg.use_ssl = true;
     }
 

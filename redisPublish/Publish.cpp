@@ -62,6 +62,7 @@ namespace RedisPublish
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
   // static const char *REDIS_CHANNEL = std::getenv("REDIS_CHANNEL");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
+  static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const int CONNECTION_RETRY_AMOUNT = -1;
   static const int CONNECTION_RETRY_DELAY = 3;
 
@@ -86,6 +87,12 @@ namespace RedisPublish
   }
 
 #if defined(BOOST_ASIO_HAS_CO_AWAIT)
+
+  auto verify_certificate(bool, asio::ssl::verify_context&) -> bool
+  {
+    std::cout << "set_verify_callback" << std::endl;
+    return true;
+  }
 
   Publish::Publish() : m_ioc{2},
                        m_conn{}, //(std::make_shared<connection>(m_ioc)),
@@ -149,6 +156,15 @@ namespace RedisPublish
     boost::system::error_code ec;
     redis::request ping_req;
     ping_req.push("PING");
+
+    std::cout << "Configure ssl env is " << REDIS_USE_SSL << "\n";
+    if (std::string(REDIS_USE_SSL) == "on")
+    {
+      std::cout << "Configure ssl next layer\n";
+      m_conn->next_layer().set_verify_mode(asio::ssl::verify_peer);
+      m_conn->next_layer().set_verify_callback(verify_certificate);
+    }
+
     co_await m_conn->async_exec(ping_req, boost::redis::ignore, asio::redirect_error(asio::deferred, ec));
     if (ec)
     {
@@ -243,6 +259,11 @@ namespace RedisPublish
     cfg.addr.host = REDIS_HOST;
     cfg.addr.port = REDIS_PORT;
     cfg.password = REDIS_PASSWORD;
+    if (std::string(REDIS_USE_SSL) == "on")
+    {
+      std::cout << "Configure ssl\n";
+      cfg.use_ssl = true;
+    }
 
     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
 #if defined(SIGQUIT)

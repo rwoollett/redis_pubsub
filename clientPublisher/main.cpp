@@ -19,7 +19,7 @@ int main(int argc, char **argv)
 
   if (!(redis_host && redis_port && redis_password && redis_channel))
   {
-    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL or REDIS_PASSWORD are not set." << std::endl;
+    std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
     exit(1);
   }
   if (argc > 1)
@@ -38,12 +38,13 @@ int main(int argc, char **argv)
     auto doPublish = [&redisPublish](const std::string &channel,
                                      const std::string &msg = "default message")
     {
-      // if (!redisPublish.isRedisConnected())
-      // {
-      //   throw std::string("Redis connection failed, cannot publish message to channel: " + channel);
-      // }
-      redisPublish.enqueue_message(channel, msg);
-      std::cout << "Published message to channel: " << channel << " with message: " << msg << std::endl;
+      if (!redisPublish.isRedisConnected())
+      {
+        std::cout << "Redis connection failed, cannot publish message to channel: " << channel << std::endl;
+      } else {
+        redisPublish.enqueue_message(channel, msg);
+        std::cout << "Published message to channel: " << channel << " with message: " << msg << std::endl;
+      }
     };
 
     std::cout << "Application loop stated\n";
