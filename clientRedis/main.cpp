@@ -15,20 +15,18 @@
 
 int main(int argc, char **argv)
 {
-
-  // Check all environment variable
+  int result = EXIT_SUCCESS;
   const char *redis_host = std::getenv("REDIS_HOST");
   const char *redis_port = std::getenv("REDIS_PORT");
   const char *redis_channel = std::getenv("REDIS_CHANNEL");
   const char *redis_password = std::getenv("REDIS_PASSWORD");
   const char *redis_use_ssl = std::getenv("REDIS_USE_SSL");
-
-  if (!(redis_host && redis_port && redis_password && redis_channel && redis_use_ssl))
+  if (!(redis_host && redis_port && redis_password && redis_channel))
   {
     std::cerr << "Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_PASSWORD or REDIS_USE_SSL are not set." << std::endl;
     exit(1);
   }
-
+  
   boost::asio::io_context main_ioc;
   boost::asio::signal_set sig_set(main_ioc.get_executor(), SIGINT, SIGTERM);
 #if defined(SIGQUIT)
@@ -36,24 +34,22 @@ int main(int argc, char **argv)
 #endif // defined(SIGQUIT)
 
   AwakenerWaitable awakener;
-  bool m_worker_shall_stop{false}; // false
+  bool m_worker_shall_stop{false}; 
+
+  sig_set.async_wait(
+    [&](const boost::system::error_code &, int)
+    {
+      m_worker_shall_stop = 1;
+      awakener.stop();
+    });
+    
+  auto main_ioc_thread = std::thread([&main_ioc]()
+    { main_ioc.run(); });
 
   try
   {
     RedisSubscribe::Subscribe redisSubscribe;
-
-    sig_set.async_wait(
-        [&](const boost::system::error_code &, int)
-        {
-          m_worker_shall_stop = 1;
-          awakener.stop();
-        });
-
-    auto main_ioc_thread = std::thread([&main_ioc]()
-                                     { main_ioc.run(); });
-
     redisSubscribe.main_redis(awakener);
-
     std::cout << "Application loop stated\n";
     while (!m_worker_shall_stop)
     {
@@ -66,25 +62,25 @@ int main(int argc, char **argv)
         m_worker_shall_stop = true;
       }
     }
-
-    main_ioc.stop();
-    if (main_ioc_thread.joinable())
-    {
-      main_ioc_thread.join();
-    }
+    std::cout << "Exited normally\n";
 
   }
   catch (const std::exception &e)
   {
     std::cout << e.what() << "\n";
-    return EXIT_FAILURE;
+    result = EXIT_FAILURE;
   }
   catch (const std::string &e)
   {
     std::cout << e << "\n";
-    return EXIT_FAILURE;
+    result = EXIT_FAILURE;
   }
 
-  std::cout << "Exited normally\n";
-  return EXIT_SUCCESS;
+  main_ioc.stop();
+  if (main_ioc_thread.joinable())
+  {
+    main_ioc_thread.join();
+  }
+
+  return result;
 }
