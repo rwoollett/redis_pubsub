@@ -16,7 +16,7 @@ services:
       "--tls-cert-file", "/tls/redis.crt",
       "--tls-key-file", "/tls/redis.key",
       "--tls-ca-cert-file", "/tls/ca.crt",
-      "--tls-auth-clients", "optional"
+      "--tls-auth-clients", "yes"
     ]
     healthcheck:
       test: ["CMD", "redis-cli", 

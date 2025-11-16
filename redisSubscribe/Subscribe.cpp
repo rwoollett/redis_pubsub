@@ -66,7 +66,7 @@ namespace RedisSubscribe
   }
 
   Subscribe::Subscribe() : m_ioc{3},
-                           m_conn{}, //(std::make_shared<redis::connection>(m_ioc)),
+                           m_conn{},
                            m_signalStatus{0},
                            cstokenSubscribedCount{0},
                            cstokenMessageCount{0},
@@ -230,7 +230,6 @@ namespace RedisSubscribe
   auto Subscribe::co_main(Awakener &awakener) -> asio::awaitable<void>
   {
     auto ex = co_await asio::this_coro::executor;
-
     redis::config cfg;
     cfg.addr.host = REDIS_HOST;
     cfg.addr.port = REDIS_PORT;
