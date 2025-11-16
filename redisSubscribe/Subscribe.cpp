@@ -49,6 +49,21 @@ namespace RedisSubscribe
     std::cout << "set_verify_callback" << std::endl;
     return true;
   }
+  // Helper to load a file into an SSL context
+  void load_certificates(asio::ssl::context& ctx,
+                        const std::string& ca_file,
+                        const std::string& cert_file,
+                        const std::string& key_file)
+  {
+      // Load trusted CA
+      ctx.load_verify_file(ca_file);
+
+      // Load client certificate
+      ctx.use_certificate_file(cert_file, asio::ssl::context::pem);
+
+      // Load private key
+      ctx.use_private_key_file(key_file, asio::ssl::context::pem);
+  }
 
   Subscribe::Subscribe() : m_ioc{3},
                            m_conn{}, //(std::make_shared<redis::connection>(m_ioc)),
@@ -95,13 +110,13 @@ namespace RedisSubscribe
     D(std::cout << "- Subscribe::receiver try connenct" << std::endl;)
 
     // Reconnect to channels.
-    std::cout << "Configure ssl env is " << REDIS_USE_SSL << "\n";
-    if (std::string(REDIS_USE_SSL) == "on")
-    {
-      std::cout << "Configure ssl next layer\n";
-      m_conn->next_layer().set_verify_mode(asio::ssl::verify_peer);
-      m_conn->next_layer().set_verify_callback(verify_certificate);
-    }
+    // std::cout << "Configure ssl env is " << REDIS_USE_SSL << "\n";
+    // if (std::string(REDIS_USE_SSL) == "on")
+    // {
+    //   std::cout << "Configure ssl next layer\n";
+    //   m_conn->next_layer().set_verify_mode(asio::ssl::verify_peer);
+    //   m_conn->next_layer().set_verify_callback(verify_certificate);
+    // }
     m_conn->set_receive_response(resp);
 
     // req.get_config().cancel_if_not_connected = true;
@@ -215,6 +230,7 @@ namespace RedisSubscribe
   auto Subscribe::co_main(Awakener &awakener) -> asio::awaitable<void>
   {
     auto ex = co_await asio::this_coro::executor;
+
     redis::config cfg;
     cfg.addr.host = REDIS_HOST;
     cfg.addr.port = REDIS_PORT;
@@ -239,9 +255,24 @@ namespace RedisSubscribe
 
     for (;;)
     {
-      m_conn = std::make_shared<redis::connection>(ex);
+      if (std::string(REDIS_USE_SSL) == "on")
+      {
+        asio::ssl::context ssl_ctx{asio::ssl::context::tlsv12_client};
+        ssl_ctx.set_verify_mode(asio::ssl::verify_peer);
+        load_certificates(ssl_ctx,
+                              "tls/ca.crt",    // Your self-signed CA
+                              "tls/redis.crt", // Your client certificate
+                              "tls/redis.key"  // Your private key
+            );
+        ssl_ctx.set_verify_callback(verify_certificate);
+        m_conn = std::make_shared<redis::connection>(ex, std::move(ssl_ctx));
 
-      m_conn->async_run(cfg, redis::logger{redis::logger::level::err}, asio::consign(asio::detached, m_conn));
+      } else {
+        m_conn = std::make_shared<redis::connection>(ex);
+
+      }
+
+      m_conn->async_run(cfg, redis::logger{redis::logger::level::err},  asio::consign(asio::detached, m_conn));
 
       try
       {
