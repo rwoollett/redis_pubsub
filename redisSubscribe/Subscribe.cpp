@@ -55,6 +55,8 @@ namespace RedisSubscribe
                         const std::string& cert_file,
                         const std::string& key_file)
   {
+    try 
+    {
       // Load trusted CA
       ctx.load_verify_file(ca_file);
 
@@ -63,6 +65,10 @@ namespace RedisSubscribe
 
       // Load private key
       ctx.use_private_key_file(key_file, asio::ssl::context::pem);
+    } catch(const std::exception &e) 
+    {
+      std::cerr << "Subscribe::load certiciates " << e.what() << std::endl;
+    }
   }
 
   Subscribe::Subscribe() : m_ioc{3},

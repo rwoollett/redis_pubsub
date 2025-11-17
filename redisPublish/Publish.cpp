@@ -90,6 +90,8 @@ namespace RedisPublish
                         const std::string& cert_file,
                         const std::string& key_file)
   {
+    try 
+    {
       // Load trusted CA
       ctx.load_verify_file(ca_file);
 
@@ -98,6 +100,10 @@ namespace RedisPublish
 
       // Load private key
       ctx.use_private_key_file(key_file, asio::ssl::context::pem);
+    } catch(const std::exception &e) 
+    {
+      std::cerr << "Publish::load certiciates " << e.what() << std::endl;
+    }
   }
 
   Publish::Publish() : m_ioc{2},
