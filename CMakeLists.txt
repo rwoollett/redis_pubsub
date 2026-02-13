@@ -46,19 +46,16 @@ set(BOOST_ROOT /usr/local)
 find_package(Boost 1.86 REQUIRED)
 
 message(STATUS "Boost include directory:  ${Boost_INCLUDE_DIR}")
+option(BUILD_WORKQ_TESTS "Build tests and include clientProducer and clientRedis" OFF)
 
-add_subdirectory(clientRedis)
-
-add_subdirectory(clientPublisher)
+if (BUILD_WORKQ_TESTS)
+  add_subdirectory(clientRedis)
+  add_subdirectory(clientPublisher)
+endif()
 
 add_subdirectory(redisSubscribe)
 
 add_subdirectory(redisPublish)
-
-install(TARGETS ClientRedis EXPORT NetworkRedisTargets RUNTIME DESTINATION bin)
-install(EXPORT NetworkRedisTargets
-        FILE NetworkRedisTargets.cmake
-        DESTINATION bin/cmake/NetworkRedis)
 
 
 
