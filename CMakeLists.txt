@@ -53,9 +53,9 @@ if (BUILD_WORKQ_TESTS)
   add_subdirectory(clientPublisher)
 endif()
 
-add_subdirectory(redisSubscribe)
+add_subdirectory(pubsub/publish)
 
-add_subdirectory(redisPublish)
+add_subdirectory(pubsub/subscribe)
 
 
 

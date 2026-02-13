@@ -5,7 +5,7 @@
 #include <condition_variable>
 #include <thread>
 #include <iostream>
-#include "../redisPublish/Publish.h" // RedisPublish class
+#include "../pubsub/publish/Publish.h" // RedisPublish class
 #include <boost/redis/src.hpp>       // boost redis implementation
 
 int main(int argc, char **argv)
