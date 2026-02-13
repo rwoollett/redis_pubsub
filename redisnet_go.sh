@@ -25,6 +25,10 @@ if test "$DIE" -eq 1; then
 fi
 
 (docker compose up -d)
+if compgen -G "output_*" > /dev/null; then 
+  echo "Cleared output_*" 
+  rm output_* 
+fi
 
 . ./set_env.sh
 
