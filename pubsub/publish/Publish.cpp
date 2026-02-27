@@ -79,18 +79,18 @@ namespace RedisPublish
 
 #if defined(BOOST_ASIO_HAS_CO_AWAIT)
 
-  auto verify_certificate(bool, asio::ssl::verify_context&) -> bool
+  auto verify_certificate(bool, asio::ssl::verify_context &) -> bool
   {
     std::cout << "set_verify_callback" << std::endl;
     return true;
   }
   // Helper to load a file into an SSL context
-  void load_certificates(asio::ssl::context& ctx,
-                        const std::string& ca_file,
-                        const std::string& cert_file,
-                        const std::string& key_file)
+  void load_certificates(asio::ssl::context &ctx,
+                         const std::string &ca_file,
+                         const std::string &cert_file,
+                         const std::string &key_file)
   {
-    try 
+    try
     {
       // Load trusted CA
       ctx.load_verify_file(ca_file);
@@ -100,35 +100,52 @@ namespace RedisPublish
 
       // Load private key
       ctx.use_private_key_file(key_file, asio::ssl::context::pem);
-    } catch(const std::exception &e) 
+    }
+    catch (const std::exception &e)
     {
       std::cerr << "Publish::load certiciates " << e.what() << std::endl;
     }
   }
 
-  Publish::Publish() : m_ioc{2},
-                       m_conn{},
-                       msg_queue{},
-                       m_signal_status{0},
-                       m_is_connected{0},
-                       m_sender_thread{}
+  Publish::Publish()
+      : m_ioc{2},
+        m_conn{},
+        msg_queue(std::make_shared<boost::lockfree::queue<
+                      PublishMessage,
+                      boost::lockfree::capacity<QUEUE_LENGTH>>>()),
+        m_signal_status(0),
+        m_is_connected(0)
   {
-    asio::co_spawn(m_ioc.get_executor(), Publish::co_main(), asio::detached);
-    m_sender_thread = std::thread([this]()
-                                  { m_ioc.run(); });
+    // start sender thread AFTER queue is constructed
+    m_sender_thread = std::thread([this]
+                                  {
+        asio::co_spawn(m_ioc, process_messages(), asio::detached);
+        m_ioc.run(); });
   }
+
+  // Publish::Publish() : m_ioc{2},
+  //                      m_conn{},
+  //                      msg_queue{},
+  //                      m_signal_status{0},
+  //                      m_is_connected{0},
+  //                      m_sender_thread{}
+  // {
+  //   asio::co_spawn(m_ioc.get_executor(), Publish::co_main(), asio::detached);
+  //   m_sender_thread = std::thread([this]()
+  //                                 { m_ioc.run(); });
+  // }
 
   Publish::~Publish()
   {
     D(std::cerr << "Redis Publisher  destroying\n";)
     PublishMessage msg;
     int countMsg = 0;
-    while (!msg_queue.empty())
+    while (!msg_queue->empty())
     {
       if (m_is_connected == 0)
       {
         // Exited because of no redis connection so empty out msg_queue
-        msg_queue.pop(msg);
+        msg_queue->pop(msg);
         countMsg++;
       }
       else
@@ -160,7 +177,7 @@ namespace RedisPublish
     msg.message[MESSAGE_LENGTH - 1] = '\0'; // Always null-terminate
 
     MESSAGE_QUEUED_COUNT++;
-    msg_queue.push(msg);
+    msg_queue->push(msg);
   }
 
   asio::awaitable<void> Publish::process_messages()
@@ -187,7 +204,7 @@ namespace RedisPublish
     {
       std::vector<PublishMessage> batch;
       PublishMessage msg;
-      while (msg_queue.pop(msg))
+      while (msg_queue->pop(msg))
       {
         if (batch.size() < BATCH_SIZE)
         {
@@ -196,7 +213,7 @@ namespace RedisPublish
         }
         else
         {
-          msg_queue.push(msg);
+          msg_queue->push(msg);
           break; // exit while
         }
       }
@@ -220,7 +237,7 @@ namespace RedisPublish
           // Perform a full reconnect to redis
           for (const auto &m : batch)
           {
-            msg_queue.push(m);
+            msg_queue->push(m);
             MESSAGE_COUNT--;
           }
 
@@ -286,16 +303,16 @@ namespace RedisPublish
         asio::ssl::context ssl_ctx{asio::ssl::context::tlsv12_client};
         ssl_ctx.set_verify_mode(asio::ssl::verify_peer);
         load_certificates(ssl_ctx,
-                              "tls/ca.crt",    // Your self-signed CA
-                              "tls/redis.crt", // Your client certificate
-                              "tls/redis.key"  // Your private key
-            );
+                          "tls/ca.crt",    // Your self-signed CA
+                          "tls/redis.crt", // Your client certificate
+                          "tls/redis.key"  // Your private key
+        );
         ssl_ctx.set_verify_callback(verify_certificate);
         m_conn = std::make_shared<redis::connection>(ex, std::move(ssl_ctx));
-
-      } else {
+      }
+      else
+      {
         m_conn = std::make_shared<redis::connection>(ex);
-
       }
 
       m_conn->async_run(cfg, redis::logger{redis::logger::level::err}, asio::consign(asio::detached, m_conn));

@@ -60,7 +60,12 @@ namespace RedisPublish
   {
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
-    boost::lockfree::queue<PublishMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
+    //boost::lockfree::queue<PublishMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
+    std::shared_ptr<boost::lockfree::queue<
+        PublishMessage,
+        boost::lockfree::capacity<QUEUE_LENGTH>>>
+        msg_queue;
+
     volatile std::sig_atomic_t m_signal_status;
     volatile std::sig_atomic_t m_is_connected;
     std::thread m_sender_thread;
