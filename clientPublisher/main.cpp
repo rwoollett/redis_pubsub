@@ -33,7 +33,7 @@ int main(int argc, char **argv)
     RedisPublish::Publish redisPublish;
     // Before running do a sanity check on connections for Redis.
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-    D(std::cout << "Redis publisher connected: " << (redisPublish.is_redis_connected() ? "true" : "false") << std::endl;)
+    DRPSPI(std::cout << "Redis publisher connected: " << (redisPublish.is_redis_connected() ? "true" : "false") << std::endl;)
 
     auto doPublish = [&redisPublish](const std::string &channel,
                                      const std::string &msg = "default message")
@@ -42,7 +42,7 @@ int main(int argc, char **argv)
         redisPublish.enqueue_message(channel, msg);
     };
 
-    D(std::cout << "Application loop stated\n";)
+    DRPSPI(std::cout << "Application loop stated\n";)
     bool m_worker_shall_stop{false}; // false
     while (!m_worker_shall_stop)
     {
@@ -75,6 +75,6 @@ int main(int argc, char **argv)
     return EXIT_FAILURE;
   }
 
-  std::cout << "Exited normally\n";
+  DRPSPI(std::cout << "Exited normally\n";)
   return EXIT_SUCCESS;
 }

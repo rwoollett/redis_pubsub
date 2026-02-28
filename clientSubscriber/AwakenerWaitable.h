@@ -43,7 +43,7 @@ public:
     if (broadcast_messages.empty())
       return; // If there are no messages, do not update.
     // The base class will print the messages.
-    D(std::cout << "- Broadcast subscribed messages\n";
+    DRPSSI(std::cout << "- Broadcast subscribed messages\n";
       for (const auto &msg : broadcast_messages) {
         std::cout << msg << std::endl;
       } std::cout
@@ -55,7 +55,7 @@ public:
 
   virtual void stop()
   {
-    D(std::cout << "AwakenerWaitable::stop\n";)
+    DRPSSI(std::cout << "AwakenerWaitable::stop\n";)
     {
       std::unique_lock<std::mutex> cl(m_class_lock);
       shall_stop_awaken = true;

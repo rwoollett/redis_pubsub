@@ -68,7 +68,7 @@ namespace RedisPublish
     }
     catch (const std::exception &e)
     {
-      std::cerr << "Publish::load certiciates " << e.what() << std::endl;
+      DRPSPI(std::cerr << "Publish::load certiciates " << e.what() << std::endl;)
     }
   }
 
@@ -94,7 +94,7 @@ namespace RedisPublish
 
   Publish::~Publish()
   {
-    D(std::cerr << "Redis Publisher  destroying\n";)
+    DRPSP(std::cerr << "Redis Publisher  destroying\n";)
     PublishMessage msg;
     int countMsg = 0;
     while (!msg_queue.empty())
@@ -107,19 +107,19 @@ namespace RedisPublish
       }
       else
       {
-        D(std::cout << "Redis Publisher destructor found msg.\n";)
+        DRPSP(std::cout << "Redis Publisher destructor found msg.\n";)
         std::this_thread::sleep_for(std::chrono::milliseconds(400));
       }
     };
     if (!m_is_connected.load())
     {
-      std::cout << "Redis Publisher found not connected to redis: " << countMsg << " messages deleted\n";
+      DRPSP(std::cout << "Redis Publisher found not connected to redis: " << countMsg << " messages deleted\n";)
     }
 
     m_ioc.stop();
     if (m_sender_thread.joinable())
       m_sender_thread.join();
-    std::cerr << "Redis Publisher destroyed\n";
+    DRPSPI(std::cerr << "Redis Publisher destroyed\n";)
   }
 
   void Publish::enqueue_message(const std::string &channel, const std::string &message)
@@ -147,12 +147,12 @@ namespace RedisPublish
     if (ec)
     {
       m_is_connected.store(false);
-      D(std::cout << "PING unsuccessful\n";)
+      DRPSPI(std::cout << "PING unsuccessful\n";)
       co_return; // Connection lost, break so we can exit function and try reconnect to redis.
     }
     else
     {
-      D(std::cout << "PING successful\n";)
+      DRPSPI(std::cout << "PING successful\n";)
     }
 
     m_is_connected.store(true);
@@ -188,10 +188,9 @@ namespace RedisPublish
 
         if (ec)
         {
-          std::cout << "Perform a full reconnect to redis. Batch size: " << batch.size()
+          DRPSP(std::cout << "Perform a full reconnect to redis. Batch size: " << batch.size()
                     << ". Reason for error: " << ec.message()
-                    << std::endl;
-          // Perform a full reconnect to redis
+                    << std::endl;)
           for (const auto &m : batch)
           {
             msg_queue.push(m);
@@ -213,13 +212,12 @@ namespace RedisPublish
             PUBLISHED_COUNT.fetch_add(1, std::memory_order_relaxed);
           }
 
-          D(std::cout
+          DRPSP(std::cout
                 << "Redis publish: " << " batch size: " << batch.size() << ". "
                 << MESSAGE_QUEUED_COUNT.load() << " queued, "
                 << MESSAGE_COUNT.load() << " sent, "
                 << PUBLISHED_COUNT.load() << " published. "
                 << SUCCESS_COUNT.load() << " successful subscribes made. "
-                //<< ", payload [" << msg.message << "]"
                 << std::endl;)
         }
       }
@@ -279,15 +277,14 @@ namespace RedisPublish
       }
       catch (const std::exception &e)
       {
-        std::cerr << "Redis publish error: " << e.what() << std::endl;
+        DRPSPI(std::cerr << "Redis publish error: " << e.what() << std::endl;)
       }
 
       // Delay before reconnecting
       m_reconnect_count.fetch_add(1, std::memory_order_relaxed);
-      std::cout << "Publish process messages exited " << m_reconnect_count << " times, reconnecting in "
-                << CONNECTION_RETRY_DELAY << " second..." << std::endl;
-      co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY))
-          .async_wait(asio::use_awaitable);
+      DRPSPI(std::cout << "Publish process messages exited " << m_reconnect_count << " times, reconnecting in "
+                << CONNECTION_RETRY_DELAY << " second..." << std::endl;)
+      co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
 
       m_conn->cancel();
 

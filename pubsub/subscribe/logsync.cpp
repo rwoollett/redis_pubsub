@@ -1,3 +1,3 @@
 #include "logsync.h"
 
-std::mutex g_cout_mutex;
+std::mutex g_rpss_cout_mutex;

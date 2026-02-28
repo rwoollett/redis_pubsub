@@ -74,7 +74,7 @@ namespace RedisSubscribe
   Subscribe::Subscribe() : m_ioc{1},
                            m_conn{}
   {
-    D(std::cerr << "Subscribe created\n";)
+    DRPSS(std::cerr << "Subscribe created\n";)
     m_is_connected.store(false);
     m_signal_status.store(false);
     m_reconnect_count.store(0);
@@ -92,7 +92,7 @@ namespace RedisSubscribe
     m_ioc.stop();
     if (m_receiver_thread.joinable())
       m_receiver_thread.join();
-    D(std::cerr << "Subscriber destroyed\n";)
+    DRPSSI(std::cerr << "Subscriber destroyed\n";)
   }
 
   auto Subscribe::receiver(Awakener &awakener) -> asio::awaitable<void>
@@ -101,8 +101,7 @@ namespace RedisSubscribe
     // get
     std::list<std::string> channels = split_by_comma(REDIS_CHANNEL);
     // Print the result
-    D(for (const auto &channel : channels)
-    {
+    DRPSSI(for (const auto &channel : channels) {
       std::cout << channel << std::endl;
     })
 
@@ -110,19 +109,9 @@ namespace RedisSubscribe
     req.push_range("SUBSCRIBE", channels);
 
     redis::generic_response resp;
-    D(std::cout << "- Subscribe::receiver try connenct" << std::endl;)
+    DRPSS(std::cout << "- Subscribe::receiver try connenct" << std::endl;)
 
-    // Reconnect to channels.
-    // std::cout << "Configure ssl env is " << REDIS_USE_SSL << "\n";
-    // if (std::string(REDIS_USE_SSL) == "on")
-    // {
-    //   std::cout << "Configure ssl next layer\n";
-    //   m_conn->next_layer().set_verify_mode(asio::ssl::verify_peer);
-    //   m_conn->next_layer().set_verify_callback(verify_certificate);
-    // }
     m_conn->set_receive_response(resp);
-
-    // req.get_config().cancel_if_not_connected = true;
     co_await m_conn->async_exec(req, redis::ignore, asio::deferred);
 
     awakener.on_subscribe();
@@ -132,7 +121,7 @@ namespace RedisSubscribe
     for (boost::system::error_code ec;;)
     {
 
-      D(std::cout << "- Subscribe::receiver generic response " << ec.message() << std::endl;)
+      DRPSS(std::cout << "- Subscribe::receiver generic response " << ec.message() << std::endl;)
       // First tries to read any buffered pushes.
       m_conn->receive(ec);
       if (ec == redis::error::sync_receive_push_failed)
@@ -143,7 +132,7 @@ namespace RedisSubscribe
 
       if (ec)
       {
-        D(std::cout << "- Subscribe::receiver ec " << ec.message() << std::endl;)
+        DRPSSI(std::cout << "- Subscribe::receiver ec " << ec.message() << std::endl;)
         break; // Connection lost, break so we can reconnect to channels.
       }
 
@@ -156,28 +145,16 @@ namespace RedisSubscribe
       // There can be multiple msg payloads for the same channel.
       // So a size of 12 means there are 3 messages in the vector, the first message is at index 0,
       // the second message is at index 4, and third at index 8.
-      D(std::cout << refmsg << " resp.value() information: amount: " << amount << std::endl;)
+      DRPSS(std::cout << refmsg << " resp.value() information: amount: " << amount << std::endl;)
       std::list<std::string> messages;
       for (const auto &node : resp.value())
       {
 
         auto ancestorNode = (index > 1) ? resp.value().at(index - 2) : node;
         auto prevNode = (index > 0) ? resp.value().at(index - 1) : node;
-        // std::cout << refmsg << " " << index << " value() at ancestorNode: " << ancestorNode.value << std::endl;
-        // std::cout << refmsg << " " << index << " data_type() at ancestorNode: " << ancestorNode.data_type << std::endl
-        //           << std::endl;
-        // std::cout << refmsg << " " << index << " value() at prevNode: " << prevNode.value << std::endl;
-        // std::cout << refmsg << " " << index << " data_type() at prevNode: " << prevNode.data_type << std::endl
-        //           << std::endl;
-        // std::cout << refmsg << " " << index << " value() at node: " << node.value << std::endl;
-        // std::cout << refmsg << " " << index << " data_type() at node: " << node.data_type << std::endl
-        //           << std::endl;
         if (node.data_type == boost::redis::resp3::type::simple_error)
         {
-          // Handle simple error
-          // std::cout << refmsg << " " << index << " resp.value() at node: " << node.value << std::endl;
-          // std::cout << refmsg << " " << index << " resp.value() at node: " << node.data_type << std::endl;
-          D(std::cerr << "Subscribe::receiver error: " + std::string(node.value) << std::endl;)
+          DRPSSI(std::cerr << "Subscribe::receiver error: " + std::string(node.value) << std::endl;)
           continue; // Skip to the next node
         }
         if (node.data_type == boost::redis::resp3::type::blob_string ||
@@ -185,27 +162,18 @@ namespace RedisSubscribe
         {
           // Handle simple string
           auto msg = node.value;
-          // std::cout << refmsg << " " << index << " resp.value() at node: " << node.value << std::endl;
-          // std::cout << refmsg << " " << index << " resp.value() at node: " << node.data_type << std::endl;
           if (msg == "subscribe")
           {
             m_subscribed_count.fetch_add(1, std::memory_order_relaxed);
-            // std::cout << refmsg << " " << index << " resp.value() at node: subscribe" << std::endl;
           }
           else if (msg == "message")
           {
             m_mssage_count.fetch_add(1, std::memory_order_relaxed);
-            // std::cout << refmsg << " " << index << " resp.value() at node: message" << std::endl;
           }
-          // else if (std::find(channels.begin(), channels.end(), msg) != channels.end())
-          // {
-          //   std::cout << refmsg << " " << index << " find channel " << msg << std::endl;
-          // }
           else
           {
             if (ancestorNode.value == "message")
             {
-              // This is a message payload, we can process it.
               std::stringstream ss;
               ss << prevNode.value << " message: " << msg;
               messages.push_back(msg);
@@ -215,12 +183,12 @@ namespace RedisSubscribe
         index++;
       }
 
-      D(std::cout << "\n#******************************************************\n";
-        std::cout << m_subscribed_count.load() << " subscribed, "
-                  << m_mssage_count.load() << " successful messages received. " << std::endl
-                  << messages.size() << " messages in this response received. "
-                  << amount << " size of resp. " << std::endl;
-        std::cout << "******************************************************\n\n";)
+      DRPSS(std::cout << "\n#******************************************************\n";
+            std::cout << m_subscribed_count.load() << " subscribed, "
+                      << m_mssage_count.load() << " successful messages received. " << std::endl
+                      << messages.size() << " messages in this response received. "
+                      << amount << " size of resp. " << std::endl;
+            std::cout << "******************************************************\n\n";)
 
       awakener.broadcast_messages(std::move(messages));
 
@@ -246,7 +214,7 @@ namespace RedisSubscribe
 #if defined(SIGQUIT)
     sig_set.add(SIGQUIT);
 #endif // defined(SIGQUIT)
-    D(std::cout << "- Subscribe co_main wait to signal" << std::endl;)
+    DRPSS(std::cout << "- Subscribe co_main wait to signal" << std::endl;)
     sig_set.async_wait(
         [&](const boost::system::error_code &, int)
         {
@@ -281,14 +249,14 @@ namespace RedisSubscribe
       }
       catch (const std::exception &e)
       {
-        std::cerr << "Redis subscribe error: " << e.what() << std::endl;
+        DRPSSI(std::cerr << "Redis subscribe error: " << e.what() << std::endl;)
       }
 
       // Delay before reconnecting
       m_is_connected.store(false);
       m_reconnect_count.fetch_add(1, std::memory_order_relaxed);
-      D(std::cout << "Receiver exited " << m_reconnect_count.load() << " times, reconnecting in "
-                << CONNECTION_RETRY_DELAY << " second..." << std::endl;)
+      DRPSSI(std::cout << "Receiver exited " << m_reconnect_count.load() << " times, reconnecting in "
+                       << CONNECTION_RETRY_DELAY << " second..." << std::endl;)
       co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY))
           .async_wait(asio::use_awaitable);
 
@@ -322,7 +290,7 @@ namespace RedisSubscribe
     }
     catch (std::exception const &e)
     {
-      D(std::cerr << "subscribe (main_redis) " << e.what() << std::endl;)
+      DRPSSI(std::cerr << "subscribe (main_redis) " << e.what() << std::endl;)
       return 1;
     }
   }

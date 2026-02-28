@@ -37,28 +37,28 @@ int main(int argc, char **argv)
   {
     RedisSubscribe::Subscribe redisSubscribe;
     redisSubscribe.main_redis(awakener);
-    D(std::cout << "Application loop stated\n";)
+    DRPSSI(std::cout << "Application loop stated\n";)
     while (!m_worker_shall_stop)
     {
       awakener.wait_broadcast();
-      D(std::cout << "Application loop awakened, awake count: " << awakener.awake_load() << std::endl;)
+      DRPSSI(std::cout << "Application loop awakened, awake count: " << awakener.awake_load() << std::endl;)
 
       if (redisSubscribe.is_signal_stopped())
       {
         m_worker_shall_stop = true;
       }
     }
-    std::cout << "Exited normally\n";
+    DRPSSI(std::cout << "Exited normally\n";)
 
   }
   catch (const std::exception &e)
   {
-    std::cout << e.what() << "\n";
+    DRPSSI(std::cout << e.what() << "\n";)
     result = EXIT_FAILURE;
   }
   catch (const std::string &e)
   {
-    std::cout << e << "\n";
+    DRPSSI(std::cout << e << "\n";)
     result = EXIT_FAILURE;
   }
 

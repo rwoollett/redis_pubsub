@@ -3,10 +3,12 @@
 #define LIB_REDIS_SUBSCRIBE_H_
 
 #ifdef NDEBUG
-    #define D(x)
+    #define DRPSS(x)
+    #define DRPSSI(x) do { std::lock_guard<std::mutex> lock(g_rpss_cout_mutex); x; } while(0);
 #else
     #include "logsync.h"
-    #define D(x) do { std::lock_guard<std::mutex> lock(g_cout_mutex); x; } while(0);
+    #define DRPSS(x) do { std::lock_guard<std::mutex> lock(g_rpss_cout_mutex); x; } while(0);
+    #define DRPSSI(x) do { std::lock_guard<std::mutex> lock(g_rpss_cout_mutex); x; } while(0);
 #endif
 
 #include <fstream>
@@ -50,7 +52,7 @@ namespace RedisSubscribe
       if (broadcast_messages.empty())
         return; // If there are no messages, do not update.
       // The base class will print the messages.
-      D(std::cout << "- Broadcast subscribed messages\n";
+      DRPSS(std::cout << "- Broadcast subscribed messages\n";
       for (const auto &msg : broadcast_messages)
       {
         std::cout << msg << std::endl;
