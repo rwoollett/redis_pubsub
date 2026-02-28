@@ -3,9 +3,10 @@
 #define LIB_REDIS_PUBLISH_H_
 
 #ifdef NDEBUG
-#define D(x)
+    #define D(x)
 #else
-#define D(x) x
+    #include "logsync.h"
+    #define D(x) do { std::lock_guard<std::mutex> lock(g_cout_mutex); x; } while(0);
 #endif
 
 #include <fstream>
@@ -40,10 +41,10 @@ namespace redis = boost::redis;
 namespace RedisPublish
 {
 
-  static std::atomic<int> MESSAGE_QUEUED_COUNT = 0;
-  static std::atomic<int> MESSAGE_COUNT = 0;
-  static std::atomic<int> SUCCESS_COUNT = 0;
-  static std::atomic<int> PUBLISHED_COUNT = 0;
+  static std::atomic<std::sig_atomic_t> MESSAGE_QUEUED_COUNT = 0;
+  static std::atomic<std::sig_atomic_t> MESSAGE_COUNT = 0;
+  static std::atomic<std::sig_atomic_t> SUCCESS_COUNT = 0;
+  static std::atomic<std::sig_atomic_t> PUBLISHED_COUNT = 0;
 
   constexpr int BATCH_SIZE = 10;
   constexpr int CHANNEL_LENGTH = 64;
@@ -60,23 +61,23 @@ namespace RedisPublish
   {
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
-    //boost::lockfree::queue<PublishMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
+    // boost::lockfree::queue<PublishMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
     std::shared_ptr<boost::lockfree::queue<
         PublishMessage,
         boost::lockfree::capacity<QUEUE_LENGTH>>>
         msg_queue;
 
-    volatile std::sig_atomic_t m_signal_status;
-    volatile std::sig_atomic_t m_is_connected;
+    std::atomic<bool> m_is_connected;
+    std::atomic<bool> m_signal_status;
+    std::atomic<std::sig_atomic_t> m_reconnect_count;
     std::thread m_sender_thread;
-    int m_reconnect_count{0};
 
   public:
     Publish();
     virtual ~Publish();
 
-    bool is_redis_signaled() { return (m_signal_status == 1); };
-    bool is_redis_connected() { return (m_is_connected == 1); };
+    bool is_redis_signaled() { return m_signal_status.load(); };
+    bool is_redis_connected() { return m_is_connected.load(); };
 
     void enqueue_message(const std::string &channel, const std::string &message);
 

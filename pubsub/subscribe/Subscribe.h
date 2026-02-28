@@ -76,12 +76,12 @@ namespace RedisSubscribe
   {
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
-    volatile std::sig_atomic_t m_signal_status;
-    int m_subscribed_count{0};
-    int m_mssage_count{0};
-    volatile std::sig_atomic_t m_is_connected;
+    std::atomic<bool> m_is_connected;
+    std::atomic<bool> m_signal_status;
+    std::atomic<std::sig_atomic_t> m_reconnect_count;
+    std::atomic<std::sig_atomic_t> m_subscribed_count;
+    std::atomic<std::sig_atomic_t> m_mssage_count;
     std::thread m_receiver_thread;
-    int m_reconnect_count{0};
 
   public:
     Subscribe();
@@ -90,8 +90,8 @@ namespace RedisSubscribe
     asio::awaitable<void> receiver(Awakener &awakener);
     asio::awaitable<void> co_main(Awakener &awakener);
     virtual auto main_redis(Awakener &awakener) -> int;
-    virtual bool is_signal_stopped() { return (m_signal_status == 1); };
-    bool is_redis_connected() { return (m_is_connected == 1); };
+    virtual bool is_signal_stopped() { return m_signal_status.load(); };
+    bool is_redis_connected() { return m_is_connected.load(); };
 
   };
 

@@ -44,18 +44,18 @@ namespace RedisSubscribe
 
 #if defined(BOOST_ASIO_HAS_CO_AWAIT)
 
-  auto verify_certificate(bool, asio::ssl::verify_context&) -> bool
+  auto verify_certificate(bool, asio::ssl::verify_context &) -> bool
   {
     std::cout << "set_verify_callback" << std::endl;
     return true;
   }
   // Helper to load a file into an SSL context
-  void load_certificates(asio::ssl::context& ctx,
-                        const std::string& ca_file,
-                        const std::string& cert_file,
-                        const std::string& key_file)
+  void load_certificates(asio::ssl::context &ctx,
+                         const std::string &ca_file,
+                         const std::string &cert_file,
+                         const std::string &key_file)
   {
-    try 
+    try
     {
       // Load trusted CA
       ctx.load_verify_file(ca_file);
@@ -65,20 +65,23 @@ namespace RedisSubscribe
 
       // Load private key
       ctx.use_private_key_file(key_file, asio::ssl::context::pem);
-    } catch(const std::exception &e) 
+    }
+    catch (const std::exception &e)
     {
       std::cerr << "Subscribe::load certiciates " << e.what() << std::endl;
     }
   }
 
   Subscribe::Subscribe() : m_ioc{3},
-                           m_conn{},
-                           m_signal_status{0},
-                           m_subscribed_count{0},
-                           m_mssage_count{0},
-                           m_is_connected{0}
+                           m_conn{}
   {
     D(std::cerr << "Subscribe created\n";)
+    m_is_connected.store(false);
+    m_signal_status.store(false);
+    m_reconnect_count.store(0);
+    m_subscribed_count.store(0);
+    m_mssage_count.store(0);
+
     if (REDIS_HOST == nullptr || REDIS_PORT == nullptr || REDIS_CHANNEL == nullptr || REDIS_PASSWORD == nullptr || REDIS_USE_SSL == nullptr)
     {
       throw std::runtime_error("Environment variables REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
@@ -124,8 +127,8 @@ namespace RedisSubscribe
     co_await m_conn->async_exec(req, redis::ignore, asio::deferred);
 
     awakener.on_subscribe();
-    m_is_connected = 1;
-    m_reconnect_count = 0; // reset
+    m_is_connected.store(true);
+    m_reconnect_count.store(0); // reset
     // Loop reading Redis pushs messages.
     for (boost::system::error_code ec;;)
     {
@@ -147,7 +150,7 @@ namespace RedisSubscribe
 
       int amount = resp.value().size();
       int index = 0;
-      int refmsg = m_mssage_count + m_subscribed_count;
+      int refmsg = m_mssage_count.load() + m_subscribed_count.load();
       // The resp.value() is a vector of nodes, each node contains a value and a data_type.
       // The SUBSCRIBE response is a vector of nodes, where the first node is the command name,
       // the second node is the channel name, and the third node is the message payload.
@@ -187,12 +190,12 @@ namespace RedisSubscribe
           // std::cout << refmsg << " " << index << " resp.value() at node: " << node.data_type << std::endl;
           if (msg == "subscribe")
           {
-            m_subscribed_count++;
+            m_subscribed_count.fetch_add(1, std::memory_order_relaxed);
             // std::cout << refmsg << " " << index << " resp.value() at node: subscribe" << std::endl;
           }
           else if (msg == "message")
           {
-            m_mssage_count++;
+            m_mssage_count.fetch_add(1, std::memory_order_relaxed);
             // std::cout << refmsg << " " << index << " resp.value() at node: message" << std::endl;
           }
           // else if (std::find(channels.begin(), channels.end(), msg) != channels.end())
@@ -214,8 +217,8 @@ namespace RedisSubscribe
       }
 
       D(std::cout << "\n#******************************************************\n";
-        std::cout << m_subscribed_count << " subscribed, "
-                  << m_mssage_count << " successful messages received. " << std::endl
+        std::cout << m_subscribed_count.load() << " subscribed, "
+                  << m_mssage_count.load() << " successful messages received. " << std::endl
                   << messages.size() << " messages in this response received. "
                   << amount << " size of resp. " << std::endl;
         std::cout << "******************************************************\n\n";)
@@ -249,7 +252,7 @@ namespace RedisSubscribe
     sig_set.async_wait(
         [&](const boost::system::error_code &, int)
         {
-          m_signal_status = 1;
+          m_signal_status.store(true);
           awakener.stop();
         });
 
@@ -260,19 +263,19 @@ namespace RedisSubscribe
         asio::ssl::context ssl_ctx{asio::ssl::context::tlsv12_client};
         ssl_ctx.set_verify_mode(asio::ssl::verify_peer);
         load_certificates(ssl_ctx,
-                              "tls/ca.crt",    // Your self-signed CA
-                              "tls/redis.crt", // Your client certificate
-                              "tls/redis.key"  // Your private key
-            );
+                          "tls/ca.crt",    // Your self-signed CA
+                          "tls/redis.crt", // Your client certificate
+                          "tls/redis.key"  // Your private key
+        );
         ssl_ctx.set_verify_callback(verify_certificate);
         m_conn = std::make_shared<redis::connection>(ex, std::move(ssl_ctx));
-
-      } else {
+      }
+      else
+      {
         m_conn = std::make_shared<redis::connection>(ex);
-
       }
 
-      m_conn->async_run(cfg, redis::logger{redis::logger::level::err},  asio::consign(asio::detached, m_conn));
+      m_conn->async_run(cfg, redis::logger{redis::logger::level::err}, asio::consign(asio::detached, m_conn));
 
       try
       {
@@ -284,9 +287,9 @@ namespace RedisSubscribe
       }
 
       // Delay before reconnecting
-      m_is_connected = 0;
-      m_reconnect_count++;
-      std::cout << "Receiver exited " << m_reconnect_count << " times, reconnecting in "
+      m_is_connected.store(false);
+      m_reconnect_count.fetch_add(1, std::memory_order_relaxed);
+      std::cout << "Receiver exited " << m_reconnect_count.load() << " times, reconnecting in "
                 << CONNECTION_RETRY_DELAY << " second..." << std::endl;
       co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY))
           .async_wait(asio::use_awaitable);
@@ -295,12 +298,12 @@ namespace RedisSubscribe
 
       if (CONNECTION_RETRY_AMOUNT == -1)
         continue;
-      if (m_reconnect_count >= CONNECTION_RETRY_AMOUNT)
+      if (m_reconnect_count.load() >= CONNECTION_RETRY_AMOUNT)
       {
         break;
       }
     }
-    m_signal_status = 1;
+    m_signal_status.store(true);
     awakener.stop();
   }
 

@@ -2,6 +2,8 @@
 add_library(RedisPublish
   Publish.cpp
   Publish.h
+  logsync.cpp
+  logsync.h
 )
 
 add_library(RedisPubSub::RedisPublish ALIAS RedisPublish)

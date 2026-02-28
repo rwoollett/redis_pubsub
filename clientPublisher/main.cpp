@@ -33,28 +33,22 @@ int main(int argc, char **argv)
     RedisPublish::Publish redisPublish;
     // Before running do a sanity check on connections for Redis.
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-    std::cout << "Redis publisher connected: " << (redisPublish.is_redis_connected() ? "true" : "false") << std::endl;
+    D(std::cout << "Redis publisher connected: " << (redisPublish.is_redis_connected() ? "true" : "false") << std::endl;)
 
     auto doPublish = [&redisPublish](const std::string &channel,
                                      const std::string &msg = "default message")
     {
-      if (!redisPublish.is_redis_connected())
-      {
-        std::cout << "Redis connection failed, cannot publish message to channel: " << channel << std::endl;
-      } else {
+      if (redisPublish.is_redis_connected())
         redisPublish.enqueue_message(channel, msg);
-        std::cout << "Published message to channel: " << channel << " with message: " << msg << std::endl;
-      }
     };
 
-    std::cout << "Application loop stated\n";
+    D(std::cout << "Application loop stated\n";)
     bool m_worker_shall_stop{false}; // false
     while (!m_worker_shall_stop)
     {
 
       if (redisPublish.is_redis_signaled())
       {
-        std::cout << "Signal to Stopped" << std::endl;
         m_worker_shall_stop = true;
         continue;
       }
