@@ -3,6 +3,7 @@
 #define LIB_REDIS_PUBLISH_H_
 
 #ifdef NDEBUG
+    #include "logsync.h"
     #define DRPSP(x)
     #define DRPSPI(x) do { std::lock_guard<std::mutex> lock(g_rpsp_cout_mutex); x; } while(0);
 #else

@@ -3,6 +3,7 @@
 #define LIB_REDIS_SUBSCRIBE_H_
 
 #ifdef NDEBUG
+    #include "logsync.h"
     #define DRPSS(x)
     #define DRPSSI(x) do { std::lock_guard<std::mutex> lock(g_rpss_cout_mutex); x; } while(0);
 #else
