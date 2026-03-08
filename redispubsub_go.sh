@@ -1,19 +1,24 @@
 #!/bin/bash
 # Run this (redisnet_go.sh) for sample redis pub/sub network with publisher and subscriber 
+if [ -z "$1" ]; then
+  echo "Usage: $0 <cmake build dir>"
+  exit 1
+fi
 
 DIE=0
 srcdir=`dirname $0`
+bdir=$1
 test -z "$srcdir" && srcdir=.
 pwd
 
-(test -f ./build/clientSubscriber/ClientSubscribe) || {
+(test -f ./$bdir/clientSubscriber/ClientSubscribe) || {
   echo
-  echo "**Error**: You must have a \"build/clientSubscriber\" folder with file \"ClientSubscribe\" built from CMakeLists"
+  echo "**Error**: You must have a \"$bdir/clientSubscriber\" folder with file \"ClientSubscribe\" built from CMakeLists"
   DIE=1
 }
-(test -f ./build/clientPublisher/ClientPublish) || {
+(test -f ./$bdir/clientPublisher/ClientPublish) || {
   echo
-  echo "**Error**: You must have a \"build/clientPublisher\" folder with file \"ClientPublish\" built from CMakeLists"
+  echo "**Error**: You must have a \"$bdir/clientPublisher\" folder with file \"ClientPublish\" built from CMakeLists"
   DIE=1
 }
 
@@ -37,12 +42,12 @@ count=1
 while [ $count -le 5 ]; do
   sleep .4
   export REDIS_PUBSUB_SUBSCRIBER_LOGFILE=output_pubsub_subscriber_$count.log
-  (./build/clientSubscriber/ClientSubscribe > output_scrb_$$_$count.log 2>&1 &)
+  (./$bdir/clientSubscriber/ClientSubscribe > output_scrb_$$_$count.log 2>&1 &)
   ((count++))
 done
 
 sleep .4
-(./build/clientPublisher/ClientPublish > output_publ_$$.log 2>&1 &)
+(./$bdir/clientPublisher/ClientPublish > output_publ_$$.log 2>&1 &)
 
 cd ..
 echo "Redisnet running in "\`$srcdir\'". Use redisnet_stop.sh to end the processes running."
