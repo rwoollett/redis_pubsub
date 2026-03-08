@@ -44,6 +44,66 @@ namespace redis = boost::redis;
 namespace RedisPublish
 {
 
+  template <typename T, size_t Capacity>
+  class BlockingSPSCQueue
+  {
+  public:
+    BlockingSPSCQueue() : m_shutdown(false) {}
+
+    // Non-blocking push (same as your current queue)
+    bool push(const T &item)
+    {
+      bool ok = m_queue.push(item);
+      if (ok)
+      {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        m_cv.notify_one();
+      }
+      return ok;
+    }
+
+    // Non-blocking pop (same as your current queue)
+    bool pop(T &out)
+    {
+      return m_queue.pop(out);
+    }
+
+    // Blocking pop: waits until item available or shutdown
+    bool blocking_pop(T &out)
+    {
+      std::unique_lock<std::mutex> lock(m_mtx);
+
+      m_cv.wait(lock, [&]
+                { return m_shutdown || !m_queue.empty(); });
+
+      if (m_shutdown)
+        return false;
+
+      return m_queue.pop(out);
+    }
+
+    // Signal shutdown and wake any waiting consumer
+    void shutdown()
+    {
+      {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        m_shutdown = true;
+      }
+      m_cv.notify_all();
+    }
+
+    bool empty() const
+    {
+      return m_queue.empty();
+    }
+
+  private:
+    boost::lockfree::spsc_queue<T, boost::lockfree::capacity<Capacity>> m_queue;
+    mutable std::mutex m_mtx;
+    std::condition_variable m_cv;
+    bool m_shutdown;
+  };
+
   static std::atomic<std::sig_atomic_t> MESSAGE_QUEUED_COUNT = 0;
   static std::atomic<std::sig_atomic_t> MESSAGE_COUNT = 0;
   static std::atomic<std::sig_atomic_t> SUCCESS_COUNT = 0;
@@ -64,9 +124,12 @@ namespace RedisPublish
   {
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
-    boost::lockfree::spsc_queue<PublishMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
+    //boost::lockfree::spsc_queue<PublishMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
+    BlockingSPSCQueue<PublishMessage, QUEUE_LENGTH> msg_queue; // pop blocking Lock-free queue
+
     std::atomic<bool> m_is_connected;
     std::atomic<bool> m_signal_status;
+    std::atomic<bool> m_shutting_down;
     std::atomic<std::sig_atomic_t> m_reconnect_count;
     std::thread m_sender_thread;
 
@@ -76,7 +139,6 @@ namespace RedisPublish
 
     bool is_redis_signaled() { return m_signal_status.load(); };
     bool is_redis_connected() { return m_is_connected.load(); };
-
     void enqueue_message(const std::string &channel, const std::string &message);
 
   private:

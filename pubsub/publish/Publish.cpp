@@ -79,7 +79,7 @@ namespace RedisPublish
   }
 
   Publish::Publish()
-      : m_ioc{1},
+      : m_ioc{2},
         m_conn{},
         msg_queue{}
   {
@@ -98,46 +98,35 @@ namespace RedisPublish
     m_is_connected.store(false);
     m_signal_status.store(false);
     m_reconnect_count.store(0);
-
-    // start sender thread AFTER queue is constructed
+    m_shutting_down.store(false);
 
     asio::co_spawn(m_ioc.get_executor(), Publish::co_main(), asio::detached);
-    m_sender_thread = std::thread([this]
+    m_sender_thread = std::thread([this]()
                                   { m_ioc.run(); });
   }
 
   Publish::~Publish()
   {
-    // PublishMessage msg;
-    // int countMsg = 0;
-    // while (!msg_queue.empty())
-    // {
-    //   if (!m_is_connected.load())
-    //   {
-    //     // Exited because of no redis connection so empty out msg_queue
-    //     msg_queue.pop(msg);
-    //     countMsg++;
-    //   }
-    //   else
-    //   {
-    //     DRPSP(std::cout << "Redis Publisher destructor found msg.\n";)
-    //     std::this_thread::sleep_for(std::chrono::milliseconds(400));
-    //   }
-    // };
-    // if (!m_is_connected.load())
-    // {
-    //   DRPSP(std::cout << "Redis Publisher found not connected to redis: " << countMsg << " messages deleted\n";)
-    // }
+    m_shutting_down.store(true);
+    if (m_conn)
+    {
+      // Schedule cancel on the io_context thread
+      boost::asio::post(m_ioc, [conn = m_conn]
+                        { conn->cancel(); });
+    }
 
-    m_ioc.stop();
+    boost::asio::post(m_ioc, [this]
+                      { msg_queue.shutdown(); });
+
+    msg_queue.push(PublishMessage{}); // dummy wake-up on lockfree queue
+
     if (m_sender_thread.joinable())
       m_sender_thread.join();
 
-    mt_logging::logger().log(
-        {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-         "Redis Publisher destroyed",
-         std::ios::app,
-         true});
+    mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
+                              "Redis Publisher destroyed",
+                              std::ios::app,
+                              true});
   }
 
   void Publish::enqueue_message(const std::string &channel, const std::string &message)
@@ -185,73 +174,97 @@ namespace RedisPublish
     m_reconnect_count.store(0); // reset
     for (boost::system::error_code ec;;)
     {
+
+      if (m_shutting_down.load())
+        break;
+
+      // std::vector<PublishMessage> batch;
+      // PublishMessage msg;
+      // while (msg_queue.pop(msg))
+      // {
+      //   if (batch.size() < BATCH_SIZE)
+      //   {
+      //     batch.push_back(msg);
+      //     MESSAGE_COUNT.fetch_add(1, std::memory_order_relaxed);
+      //   }
+      //   else
+      //   {
+      //     msg_queue.push(msg);
+      //     break; // exit while
+      //   }
+      // }
       std::vector<PublishMessage> batch;
       PublishMessage msg;
-      while (msg_queue.pop(msg))
+      while (batch.size() < BATCH_SIZE && msg_queue.blocking_pop(msg))
       {
-        if (batch.size() < BATCH_SIZE)
-        {
-          batch.push_back(msg);
-          MESSAGE_COUNT.fetch_add(1, std::memory_order_relaxed);
-        }
-        else
-        {
-          msg_queue.push(msg);
-          break; // exit while
-        }
+        if (m_shutting_down.load())
+          break;
+        batch.push_back(msg);
+        MESSAGE_COUNT.fetch_add(1, std::memory_order_relaxed);
       }
 
-      if (!batch.empty())
+      if (m_shutting_down.load())
+        break;
+
+      if (batch.empty())
+        continue;
+
+      redis::request req;
+      for (const auto &m : batch)
       {
-        redis::request req;
+        req.push("PUBLISH", m.channel, m.message);
+      }
+      redis::generic_response resp;
+      req.get_config().cancel_if_not_connected = true;
+      co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
+
+      if (ec)
+      {
+        mt_logging::logger().log(
+            {REDIS_PUBSUB_PUBLISHER_LOGFILE,
+             fmt::format("Perform a full reconnect to redis. Batch size: {}. Reason for error: {}", batch.size(), ec.message()),
+             std::ios::app,
+             true});
         for (const auto &m : batch)
         {
-          req.push("PUBLISH", m.channel, m.message);
+          msg_queue.push(m);
+          MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
         }
-        redis::generic_response resp;
-        req.get_config().cancel_if_not_connected = true;
-        co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
 
-        if (ec)
-        {
-          mt_logging::logger().log(
-              {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-               fmt::format("Perform a full reconnect to redis. Batch size: {}. Reason for error: {}", batch.size(), ec.message()),
-               std::ios::app,
-               true});
-          for (const auto &m : batch)
-          {
-            msg_queue.push(m);
-            MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
-          }
-
-          break; // Connection lost, break so we can exit function and try reconnect to redis.
-        }
-        else
-        {
-          for (const auto &node : resp.value())
-          {
-            if (node.data_type == redis::resp3::type::number)
-            {
-              // Process number
-              if (std::atoi(std::string(node.value).c_str()) > 0)
-                SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
-            }
-            PUBLISHED_COUNT.fetch_add(1, std::memory_order_relaxed);
-          }
-
-          mt_logging::logger().log(
-              {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-               fmt::format("Redis publish: batch size {}. {} queued, {} sent, {} published. {} successful subscribes made.",
-                           batch.size(), MESSAGE_QUEUED_COUNT.load(), MESSAGE_COUNT.load(), PUBLISHED_COUNT.load(), SUCCESS_COUNT.load()),
-               std::ios::app,
-               true});
-        }
+        co_return; // break; // Connection lost, break so we can exit function and try reconnect to redis.
       }
-      else
+      for (const auto &node : resp.value())
       {
-        co_await asio::steady_timer(co_await asio::this_coro::executor, std::chrono::milliseconds(100)).async_wait(asio::use_awaitable);
+        if (node.data_type == redis::resp3::type::number)
+        {
+          // Process number
+          if (std::atoi(std::string(node.value).c_str()) > 0)
+            SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
+        }
+        PUBLISHED_COUNT.fetch_add(1, std::memory_order_relaxed);
       }
+
+      mt_logging::logger().log(
+          {REDIS_PUBSUB_PUBLISHER_LOGFILE,
+           fmt::format("Redis publish: batch size {}. {} queued, {} sent, {} published. {} successful subscribes made.",
+                       batch.size(), MESSAGE_QUEUED_COUNT.load(), MESSAGE_COUNT.load(), PUBLISHED_COUNT.load(), SUCCESS_COUNT.load()),
+           std::ios::app,
+           true});
+    }
+    // Drop all remaining messages on shutdown
+    if (m_shutting_down.load())
+    {
+      PublishMessage leftover;
+      int dropped = 0;
+      while (msg_queue.pop(leftover))
+      {
+        dropped++;
+      }
+
+      mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
+                                fmt::format("Redis publish shutdown: dropped {} pending messages", dropped),
+                                std::ios::app,
+                                true});
     }
   }
 
@@ -279,6 +292,11 @@ namespace RedisPublish
 
     for (;;)
     {
+      if (m_shutting_down.load())
+      {
+        co_return;
+      }
+
       if (std::string(REDIS_USE_SSL) == "on")
       {
         asio::ssl::context ssl_ctx{asio::ssl::context::tlsv12_client};
@@ -311,6 +329,11 @@ namespace RedisPublish
              true});
       }
 
+      if (m_shutting_down.load())
+      {
+        co_return;
+      }
+
       // Delay before reconnecting
       m_reconnect_count.fetch_add(1, std::memory_order_relaxed);
       mt_logging::logger().log(
@@ -318,9 +341,10 @@ namespace RedisPublish
            fmt::format("Publish process messages exited {} times, reconnecting in {} seconds...", m_reconnect_count.load(), CONNECTION_RETRY_DELAY),
            std::ios::app,
            true});
-      co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
 
       m_conn->cancel();
+
+      co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
 
       if (CONNECTION_RETRY_AMOUNT == -1)
         continue;
