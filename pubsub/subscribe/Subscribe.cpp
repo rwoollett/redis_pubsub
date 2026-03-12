@@ -310,6 +310,10 @@ namespace RedisSubscribe
              std::ios::app,
              true});
       }
+      if (m_signal_status.load())
+      {
+        co_return;
+      }
 
       // Delay before reconnecting
       m_is_connected.store(false);
