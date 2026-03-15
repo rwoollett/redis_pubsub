@@ -109,7 +109,7 @@ namespace RedisPublish
   static std::atomic<std::sig_atomic_t> SUCCESS_COUNT = 0;
   static std::atomic<std::sig_atomic_t> PUBLISHED_COUNT = 0;
 
-  constexpr int BATCH_SIZE = 10;
+  constexpr int BATCH_SIZE = 1;
   constexpr int CHANNEL_LENGTH = 64;
   constexpr int MESSAGE_LENGTH = 256;
   constexpr int QUEUE_LENGTH = 128;
