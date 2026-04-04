@@ -128,7 +128,10 @@ namespace RedisPublish
     if (m_conn)
     {
       boost::asio::post(m_ioc, [conn = m_conn]
-                        { conn->cancel(); });
+                        {
+                          conn->cancel();
+                          conn->reset_stream(); //
+                        });
     }
 
     boost::asio::post(m_ioc, [this]
@@ -178,17 +181,14 @@ namespace RedisPublish
     asio::steady_timer timer{ex};
     timer.expires_after(std::chrono::seconds(PUBLISH_TIMEOUT_DELAY)); // publish timeout
 
-    auto exec_op = conn->async_exec(
-        req,
-        resp,
-        asio::redirect_error(asio::use_awaitable, exec_ec));
-
-    auto timer_op = timer.async_wait(
-        asio::redirect_error(asio::use_awaitable, timer_ec));
-
     // Wait for EITHER exec OR timer
-    // auto result = co_await (exec_op || timer_op);
-    auto result = co_await (std::move(exec_op) || std::move(timer_op));
+    auto result = co_await (
+        conn->async_exec(
+            req,
+            resp,
+            asio::redirect_error(asio::use_awaitable, exec_ec)) ||
+        timer.async_wait(
+            asio::redirect_error(asio::use_awaitable, timer_ec)));
 
     std::cerr << "publish one after async exec and timer\n";
     // Timer fired first → async_exec is considered hung
@@ -216,7 +216,8 @@ namespace RedisPublish
     // Exec completed first: check error
     if (exec_ec)
     {
-      conn->cancel();            // optional, but consistent
+      conn->cancel();       // optional, but consistent
+      conn->reset_stream(); // wedged state possible with asio on hanged async_exec request
       m_conn_alive.store(false); // <-- key line
 
       // if (!m_shutting_down.load())
@@ -236,7 +237,7 @@ namespace RedisPublish
       co_return;
     }
 
-    // Success path: count + log
+    // Success path
     for (const auto &node : resp.value())
     {
       if (node.data_type == redis::resp3::type::number)
