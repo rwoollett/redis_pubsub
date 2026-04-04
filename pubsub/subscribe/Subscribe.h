@@ -2,31 +2,6 @@
 #ifndef LIB_REDIS_SUBSCRIBE_H_
 #define LIB_REDIS_SUBSCRIBE_H_
 
-#ifdef NDEBUG
-#include "logsync.h"
-#define DRPSS(x)
-#define DRPSSI(x)                                        \
-  do                                                     \
-  {                                                      \
-    std::lock_guard<std::mutex> lock(g_rpss_cout_mutex); \
-    x;                                                   \
-  } while (0);
-#else
-#include "logsync.h"
-#define DRPSS(x)                                         \
-  do                                                     \
-  {                                                      \
-    std::lock_guard<std::mutex> lock(g_rpss_cout_mutex); \
-    x;                                                   \
-  } while (0);
-#define DRPSSI(x)                                        \
-  do                                                     \
-  {                                                      \
-    std::lock_guard<std::mutex> lock(g_rpss_cout_mutex); \
-    x;                                                   \
-  } while (0);
-#endif
-
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -68,7 +43,7 @@ namespace RedisSubscribe
   class Subscribe
   {
     asio::io_context m_ioc;
-    Awakener& m_awakener;
+    Awakener &m_awakener;
     std::shared_ptr<redis::connection> m_conn;
     std::atomic<bool> m_is_connected;
     std::atomic<bool> m_signal_status;
@@ -76,6 +51,20 @@ namespace RedisSubscribe
     std::atomic<std::sig_atomic_t> m_subscribed_count;
     std::atomic<std::sig_atomic_t> m_mssage_count;
     std::thread m_receiver_thread;
+    enum class SubConnectionState
+    {
+      Idle,
+      Connecting,
+      Authenticating,
+      Subscribing,
+      Ready,
+      Receiving,
+      Broken,
+      Reconnecting,
+      Shutdown
+    };
+
+    std::atomic<SubConnectionState> m_state;
 
   public:
     Subscribe(Awakener &awakener);
@@ -89,6 +78,9 @@ namespace RedisSubscribe
     void join();
     virtual bool is_signal_stopped() { return m_signal_status.load(); };
     bool is_redis_connected() { return m_is_connected.load(); };
+
+  private:
+    void set_state(SubConnectionState new_state, std::string_view reason);
   };
 
 } /* namespace RedisSubscribe */

@@ -2,8 +2,6 @@
 add_library(RedisSubscribe
   Subscribe.cpp
   Subscribe.h
-  logsync.cpp
-  logsync.h
 )
 
 add_library(RedisPubSub::RedisSubscribe ALIAS RedisSubscribe)

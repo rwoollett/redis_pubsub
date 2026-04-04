@@ -336,7 +336,6 @@ namespace RedisPublish
                            { this->worker_thread_fn(ex); });
 
     // --- Create connection ---
-    std::cerr << "create connection\n";
     if (std::string(REDIS_USE_SSL) == "on")
     {
       asio::ssl::context ssl_ctx{asio::ssl::context::tlsv12_client};

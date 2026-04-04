@@ -96,6 +96,7 @@ namespace RedisSubscribe
     m_reconnect_count.store(0);
     m_subscribed_count.store(0);
     m_mssage_count.store(0);
+    m_state.store(SubConnectionState::Idle);
 
     if (REDIS_PUBSUB_SUBSCRIBER_LOGFILE == nullptr ||
         REDIS_HOST == nullptr ||
@@ -150,21 +151,21 @@ namespace RedisSubscribe
   auto Subscribe::receiver() -> asio::awaitable<void>
   {
     std::list<std::string> channels = split_by_comma(REDIS_CHANNEL);
-    mt_logging::logger().log({REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-                              fmt::format("- Broadcast subscribed channels {}", fmt::join(channels, ", ")),
-                              std::ios::app,
-                              true});
-
     redis::request req;
     req.push_range("SUBSCRIBE", channels);
 
+    set_state(SubConnectionState::Subscribing, fmt::format("Sending SUBSCRIBE command - subscribed channels {}", fmt::join(channels, ", ")));
+
     redis::generic_response resp;
     m_conn->set_receive_response(resp);
+
     co_await m_conn->async_exec(req, redis::ignore, asio::deferred);
 
-    // awakener.on_subscribe();
+    set_state(SubConnectionState::Ready, "Subscribed to channels");
+
     m_is_connected.store(true);
     m_reconnect_count.store(0); // reset
+
     for (boost::system::error_code ec;;)
     {
       if (m_signal_status.load())
@@ -180,12 +181,11 @@ namespace RedisSubscribe
 
       if (ec)
       {
-        mt_logging::logger().log({REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-                                  fmt::format("- Subscribe::receiver ec  {}", ec.message()),
-                                  std::ios::app,
-                                  true});
+        set_state(SubConnectionState::Broken, fmt::format("Receive error: {}", ec.message()));
         co_return; // Connection lost, break so we can reconnect to channels.
       }
+
+      set_state(SubConnectionState::Receiving, "Processing incoming message batch");
 
       int index = 0;
       std::list<std::string> messages;
@@ -266,6 +266,8 @@ namespace RedisSubscribe
     sig_set.async_wait(
         [&](const boost::system::error_code &, int)
         {
+          set_state(SubConnectionState::Shutdown, "Signal received");
+
           m_signal_status.store(true);
           m_awakener.stop();
 
@@ -298,7 +300,9 @@ namespace RedisSubscribe
         m_conn = std::make_shared<redis::connection>(ex);
       }
 
+      set_state(SubConnectionState::Connecting, "Starting async_run/Retrying connection");
       m_conn->async_run(cfg, redis::logger{redis::logger::level::err}, asio::consign(asio::detached, m_conn));
+      set_state(SubConnectionState::Authenticating, "HELLO/AUTH handshake");
 
       try
       {
@@ -320,14 +324,9 @@ namespace RedisSubscribe
       // Delay before reconnecting
       m_is_connected.store(false);
       m_reconnect_count.fetch_add(1, std::memory_order_relaxed);
-
-      mt_logging::logger().log(
-          {REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-           fmt::format("Receiver exited {} times, reconnecting in {} seconds...", m_reconnect_count.load(), CONNECTION_RETRY_DELAY),
-           std::ios::app,
-           true});
-
       m_conn->cancel();
+
+      set_state(SubConnectionState::Reconnecting, fmt::format("Receiver exited {} times, reconnecting in {} seconds...", m_reconnect_count.load(), CONNECTION_RETRY_DELAY));
 
       co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
 
@@ -366,6 +365,43 @@ namespace RedisSubscribe
            true});
       return 1;
     }
+  }
+
+  void Subscribe::set_state(SubConnectionState new_state, std::string_view reason)
+  {
+    SubConnectionState old = m_state.exchange(new_state);
+
+    auto to_str = [](SubConnectionState s)
+    {
+      switch (s)
+      {
+      case SubConnectionState::Idle:
+        return "Idle";
+      case SubConnectionState::Connecting:
+        return "Connecting";
+      case SubConnectionState::Authenticating:
+        return "Authenticating";
+      case SubConnectionState::Subscribing:
+        return "Subscribing";
+      case SubConnectionState::Ready:
+        return "Ready";
+      case SubConnectionState::Receiving:
+        return "Receiving";
+      case SubConnectionState::Broken:
+        return "Broken";
+      case SubConnectionState::Reconnecting:
+        return "Reconnecting";
+      case SubConnectionState::Shutdown:
+        return "Shutdown";
+      }
+      return "Unknown";
+    };
+
+    mt_logging::logger().log({REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
+                              fmt::format("SUB State: {} → {} ({})",
+                                          to_str(old), to_str(new_state), reason),
+                              std::ios::app,
+                              true});
   }
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)
