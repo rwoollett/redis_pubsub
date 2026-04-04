@@ -84,3 +84,53 @@ This is the structure of the files in the project:
     └── redispubsub_stop.sh
  
 ```
+
+ ┌──────────────────────────┐
+ │        Idle (start)      │
+ └──────────────┬───────────┘
+                │
+                │ create connection object once
+                ▼
+        ┌──────────────────────┐
+        │     Connecting       │
+        └──────────┬──────────┘
+                   │ async_run() started
+                   │
+                   ▼
+        ┌──────────────────────┐
+        │   Authenticating     │
+        └──────────┬──────────┘
+                   │ HELLO / AUTH / CLIENT SETNAME
+                   │ (Boost.Redis does this internally)
+                   ▼
+        ┌──────────────────────┐
+        │        Ready         │
+        └──────────┬──────────┘
+                   │
+                   │ normal operation:
+                   │   - async_exec(PUBLISH)
+                   │   - health checks
+                   │   - worker thread pushes messages
+                   │
+                   ▼
+        ┌──────────────────────┐
+        │        Broken        │
+        └──────────┬──────────┘
+                   │ triggered by:
+                   │   - publish timeout
+                   │   - async_exec error
+                   │   - async_run handler firing
+                   │   - startup PING failure
+                   │
+                   ▼
+        ┌──────────────────────┐
+        │     Reconnecting     │
+        └──────────┬──────────┘
+                   │
+                   │ wait CONNECTION_RETRY_DELAY
+                   │ cancel + reset_stream
+                   │
+                   ▼
+        ┌──────────────────────┐
+        │      Connecting      │  (loop)
+        └──────────────────────┘

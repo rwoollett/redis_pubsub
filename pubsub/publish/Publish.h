@@ -141,26 +141,40 @@ namespace RedisPublish
     std::shared_ptr<redis::connection> m_conn;
     BlockingSPSCQueue<PublishMessage, QUEUE_LENGTH> msg_queue; // pop blocking Lock-free queue
 
-    //std::atomic<bool> m_is_connected{false};
+    // std::atomic<bool> m_is_connected{false};
     std::atomic<bool> m_signal_status{false};
     std::atomic<bool> m_shutting_down{false};
     std::atomic<bool> m_conn_alive{false};
     std::atomic<std::sig_atomic_t> m_reconnect_count{0};
     std::thread m_sender_thread;
     std::thread m_worker;
+    enum class ConnectionState
+    {
+      Idle,
+      Connecting,
+      Authenticating,
+      Ready,
+      Broken,
+      Reconnecting,
+      Shutdown
+    };
+
+    std::atomic<ConnectionState> m_state;
 
   public:
     Publish();
     virtual ~Publish();
 
     bool is_redis_signaled() { return m_signal_status.load(); };
-   // bool is_redis_connected() { return m_conn_alive.load(); };
+    // bool is_redis_connected() { return m_conn_alive.load(); };
     void enqueue_message(const std::string &channel, const std::string &message);
 
   private:
     asio::awaitable<void> co_main();
     asio::awaitable<void> publish_one(const PublishMessage &msg);
     void worker_thread_fn(boost::asio::any_io_executor ex);
+
+    void set_state(ConnectionState new_state, std::string_view reason);
   };
 
   class Sender : public std::enable_shared_from_this<Sender>
