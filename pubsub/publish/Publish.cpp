@@ -14,6 +14,8 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/redis/response.hpp>
 #include <boost/redis/request.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+using namespace boost::asio::experimental::awaitable_operators;
 
 namespace RedisPublish
 {
@@ -23,7 +25,8 @@ namespace RedisPublish
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const char *REDIS_PUBSUB_PUBLISHER_LOGFILE = std::getenv("REDIS_PUBSUB_PUBLISHER_LOGFILE");
   static const int CONNECTION_RETRY_AMOUNT = -1;
-  static const int CONNECTION_RETRY_DELAY = 3;
+  static const int CONNECTION_RETRY_DELAY = 3; // ensure longer than 1 sec to avoid reconnect ssl rteradown abort
+  static const int PUBLISH_TIMEOUT_DELAY = 2;  // ensure longer than 1 sec to avoid reconnect ssl rteradown abort
 
   std::list<std::string> split_by_comma(const char *str)
   {
@@ -95,12 +98,19 @@ namespace RedisPublish
     MESSAGE_COUNT.store(0);
     SUCCESS_COUNT.store(0);
     PUBLISHED_COUNT.store(0);
-    m_is_connected.store(false);
     m_signal_status.store(false);
     m_reconnect_count.store(0);
     m_shutting_down.store(false);
+    m_conn_alive.store(false);
 
-    asio::co_spawn(m_ioc.get_executor(), Publish::co_main(), asio::detached);
+    asio::co_spawn(
+        m_ioc.get_executor(),
+        [this]() -> asio::awaitable<void>
+        {
+          co_return co_await this->co_main();
+        },
+        asio::detached);
+
     m_sender_thread = std::thread([this]()
                                   { m_ioc.run(); });
   }
@@ -108,17 +118,19 @@ namespace RedisPublish
   Publish::~Publish()
   {
     m_shutting_down.store(true);
+
+    msg_queue.shutdown();
+    msg_queue.push(PublishMessage{}); // dummy wake
+
+    if (m_worker.joinable())
+      m_worker.join();
+
     if (m_conn)
     {
-      // Schedule cancel on the io_context thread
       boost::asio::post(m_ioc, [conn = m_conn]
                         { conn->cancel(); });
     }
 
-    boost::asio::post(m_ioc, [this]
-                      { msg_queue.shutdown(); });
-
-    msg_queue.push(PublishMessage{}); // dummy wake-up on lockfree queue
     boost::asio::post(m_ioc, [this]
                       { m_ioc.stop(); });
 
@@ -135,7 +147,7 @@ namespace RedisPublish
   {
     if (m_signal_status.load())
       return;
-
+    std::cerr << "enqueue do\n";
     PublishMessage msg;
     std::strncpy(msg.channel, channel.c_str(), CHANNEL_LENGTH - 1);
     msg.channel[CHANNEL_LENGTH - 1] = '\0'; // Always null-terminate
@@ -146,88 +158,125 @@ namespace RedisPublish
     msg_queue.push(msg);
   }
 
-  asio::awaitable<void> Publish::process_messages()
+  asio::awaitable<void> Publish::publish_one(const PublishMessage &msg)
   {
-    boost::system::error_code ec;
+    std::cerr << "publish one\n";
 
-    // --- Health check ---
-    redis::request ping_req;
-    ping_req.push("PING");
+    auto ex = co_await asio::this_coro::executor;
+    // Take a strong ref to whatever connection is current *now*
+    auto conn = m_conn;
+    if (!conn)
+      co_return;
 
-    co_await m_conn->async_exec(ping_req, boost::redis::ignore,
-                                asio::redirect_error(asio::deferred, ec));
+    redis::request req;
+    req.push("PUBLISH", msg.channel, msg.message);
 
-    if (ec)
+    boost::system::error_code exec_ec;
+    boost::system::error_code timer_ec;
+    redis::generic_response resp;
+
+    asio::steady_timer timer{ex};
+    timer.expires_after(std::chrono::seconds(PUBLISH_TIMEOUT_DELAY)); // publish timeout
+
+    auto exec_op = conn->async_exec(
+        req,
+        resp,
+        asio::redirect_error(asio::use_awaitable, exec_ec));
+
+    auto timer_op = timer.async_wait(
+        asio::redirect_error(asio::use_awaitable, timer_ec));
+
+    // Wait for EITHER exec OR timer
+    // auto result = co_await (exec_op || timer_op);
+    auto result = co_await (std::move(exec_op) || std::move(timer_op));
+
+    std::cerr << "publish one after async exec and timer\n";
+    // Timer fired first → async_exec is considered hung
+    if (result.index() == 1)
     {
-      m_is_connected.store(false);
+      // Force connection teardown so async_run() exits and reconnect loop kicks in
+      std::cerr << "publish time out after asyn exec hangs\n";
+      conn->cancel();
+      conn->reset_stream(); // wedged state possible with asio on hanged async_exec request
+      m_conn_alive.store(false);
+
+      // if (!m_shutting_down.load())
+      // {
+      //   msg_queue.push(msg);
+      // }
+
       mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
-                                "PING unsuccessful",
+                                "Redis publish timed out. Requeueing message and forcing reconnect.",
                                 std::ios::app,
                                 true});
+
       co_return;
     }
 
-    m_is_connected.store(true);
-    m_reconnect_count.store(0);
+    // Exec completed first: check error
+    if (exec_ec)
+    {
+      conn->cancel();          // optional, but consistent
+      m_conn_alive.store(false); // <-- key line
 
-    // --- Main publish loop ---
+      // if (!m_shutting_down.load())
+      // {
+      //   msg_queue.push(msg);
+      // }
+
+      mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
+                                fmt::format("Redis publish failed: {}. {}",
+                                            exec_ec.message(),
+                                            m_shutting_down.load()
+                                                ? "Shutdown in progress, dropping message."
+                                                : "Requeueing message."),
+                                std::ios::app,
+                                true});
+
+      co_return;
+    }
+
+    // Success path: count + log
+    for (const auto &node : resp.value())
+    {
+      if (node.data_type == redis::resp3::type::number)
+      {
+        if (std::atoi(std::string(node.value).c_str()) > 0)
+          SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
+      }
+      PUBLISHED_COUNT.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
+
+    mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
+                              fmt::format("Redis publish OK: {} {}", msg.channel, msg.message),
+                              std::ios::app,
+                              true});
+  }
+
+  void Publish::worker_thread_fn(boost::asio::any_io_executor ex)
+  {
     for (;;)
     {
+      PublishMessage msg;
+      // Blocking wait
+      if (!msg_queue.blocking_pop(msg))
+        break; // queue shutdown
+
       if (m_shutting_down.load())
         break;
 
-      PublishMessage msg;
-
-      // This blocks until a message arrives or shutdown() is called
-      if (!msg_queue.blocking_pop(msg))
-      {
-        if (m_shutting_down.load())
-          break;
-        continue;
-      }
-
-      // Build a single PUBLISH request
-      redis::request req;
-      req.push("PUBLISH", msg.channel, msg.message);
-
-      redis::generic_response resp;
-      ec.clear();
-
-      co_await m_conn->async_exec(req, resp,
-                                  asio::redirect_error(asio::use_awaitable, ec));
-
-      if (ec)
-      {
-        // Requeue ONLY the failed message
-        msg_queue.push(msg);
-
-        mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
-                                  fmt::format("Redis publish failed: {}. Requeueing message.",
-                                              ec.message()),
-                                  std::ios::app,
-                                  true});
-
-        co_return; // trigger reconnect
-      }
-
-      // Count success
-      for (const auto &node : resp.value())
-      {
-        if (node.data_type == redis::resp3::type::number)
-        {
-          if (std::atoi(std::string(node.value).c_str()) > 0)
-            SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
-        }
-        PUBLISHED_COUNT.fetch_add(1, std::memory_order_relaxed);
-      }
-
-      MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
-
-      mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
-                                fmt::format("Redis publish OK: {} {}",
-                                            msg.channel, msg.message),
-                                std::ios::app,
-                                true});
+      // Hand off to Asio thread
+      std::cerr << "post to asio\n";
+      asio::post(ex, [this, msg, ex]
+                 { asio::co_spawn(
+                       ex,
+                       [this, msg]() -> asio::awaitable<void>
+                       {
+                         co_return co_await publish_one(msg);
+                       },
+                       asio::detached); });
     }
 
     // --- Shutdown cleanup ---
@@ -235,178 +284,69 @@ namespace RedisPublish
     {
       PublishMessage leftover;
       int dropped = 0;
+
       while (msg_queue.pop(leftover))
         dropped++;
 
       mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
-                                fmt::format("Redis publish shutdown: dropped {} pending messages",
-                                            dropped),
+                                fmt::format("Redis publish shutdown: dropped {} pending messages", dropped),
                                 std::ios::app,
                                 true});
     }
   }
 
-  // asio::awaitable<void> Publish::process_messages()
-  // {
-  //   boost::system::error_code ec;
-  //   redis::request ping_req;
-  //   ping_req.push("PING");
-
-  //   co_await m_conn->async_exec(ping_req, boost::redis::ignore, asio::redirect_error(asio::deferred, ec));
-  //   if (ec)
-  //   {
-  //     m_is_connected.store(false);
-  //     mt_logging::logger().log(
-  //         {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-  //          "PING unsuccessful",
-  //          std::ios::app,
-  //          true});
-  //     co_return; // Connection lost, break so we can exit function and try reconnect to redis.
-  //   }
-  //   else
-  //   {
-  //     mt_logging::logger().log(
-  //         {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-  //          "PING successful",
-  //          std::ios::app,
-  //          true});
-  //   }
-
-  //   m_is_connected.store(true);
-  //   m_reconnect_count.store(0); // reset
-  //   for (boost::system::error_code ec;;)
-  //   {
-
-  //     if (m_shutting_down.load())
-  //       break;
-
-  //     std::vector<PublishMessage> batch;
-  //     PublishMessage msg;
-  //     while (batch.size() < BATCH_SIZE && msg_queue.blocking_pop(msg))
-  //     {
-  //       if (m_shutting_down.load())
-  //         break;
-  //       batch.push_back(msg);
-  //       MESSAGE_COUNT.fetch_add(1, std::memory_order_relaxed);
-  //     }
-
-  //     if (m_shutting_down.load())
-  //       break;
-
-  //     if (batch.empty())
-  //       continue;
-
-  //     redis::request req;
-  //     for (const auto &m : batch)
-  //     {
-  //       mt_logging::logger().log(
-  //           {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-  //            fmt::format("Redis publish: {} {} ",
-  //                        m.channel, m.message),
-  //            std::ios::app,
-  //            true});
-  //       req.push("PUBLISH", m.channel, m.message);
-  //     }
-  //     redis::generic_response resp;
-  //     // req.get_config().cancel_if_not_connected = true;
-  //     co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
-
-  //     if (ec)
-  //     {
-  //       mt_logging::logger().log(
-  //           {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-  //            fmt::format("Perform a full reconnect to redis. Batch size: {}. Reason for error: {}", batch.size(), ec.message()),
-  //            std::ios::app,
-  //            true});
-  //       for (const auto &m : batch)
-  //       {
-  //         msg_queue.push(m);
-  //         MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
-  //       }
-
-  //       co_return; // break; // Connection lost, break so we can exit function and try reconnect to redis.
-  //     }
-  //     for (const auto &node : resp.value())
-  //     {
-  //       if (node.data_type == redis::resp3::type::number)
-  //       {
-  //         // Process number
-  //         if (std::atoi(std::string(node.value).c_str()) > 0)
-  //           SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
-  //       }
-  //       PUBLISHED_COUNT.fetch_add(1, std::memory_order_relaxed);
-  //     }
-
-  //     mt_logging::logger().log(
-  //         {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-  //          fmt::format("Redis publish: batch size {}. {} queued, {} sent, {} published. {} successful subscribes made.",
-  //                      batch.size(), MESSAGE_QUEUED_COUNT.load(), MESSAGE_COUNT.load(), PUBLISHED_COUNT.load(), SUCCESS_COUNT.load()),
-  //          std::ios::app,
-  //          true});
-  //   }
-  //   // Drop all remaining messages on shutdown
-  //   if (m_shutting_down.load())
-  //   {
-  //     PublishMessage leftover;
-  //     int dropped = 0;
-  //     while (msg_queue.pop(leftover))
-  //     {
-  //       dropped++;
-  //     }
-
-  //     mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
-  //                               fmt::format("Redis publish shutdown: dropped {} pending messages", dropped),
-  //                               std::ios::app,
-  //                               true});
-  //   }
-  // }
-
-  auto Publish::co_main() -> asio::awaitable<void>
+  asio::awaitable<void> Publish::co_main()
   {
     auto ex = co_await asio::this_coro::executor;
+
+    // --- Setup Redis config ---
     redis::config cfg;
     cfg.clientname = "redis_publish";
     cfg.addr.host = REDIS_HOST;
     cfg.addr.port = REDIS_PORT;
     cfg.password = REDIS_PASSWORD;
+    cfg.health_check_interval = std::chrono::minutes(1); // keepalive
+
     if (std::string(REDIS_USE_SSL) == "on")
-    {
       cfg.use_ssl = true;
-    }
-    cfg.health_check_interval = std::chrono::minutes(1); // set 0 for tls friendly
 
-
+    // --- Setup signal handler ---
     boost::asio::signal_set sig_set(ex, SIGINT, SIGTERM);
 #if defined(SIGQUIT)
     sig_set.add(SIGQUIT);
-#endif // defined(SIGQUIT)
-    sig_set.async_wait(
-        [&](const boost::system::error_code &, int)
-        {
-          m_signal_status.store(true);
-          m_shutting_down.store(true);
-          if (m_conn)
-            m_conn->cancel();
-          msg_queue.shutdown();
-        });
+#endif
 
+    sig_set.async_wait([this](auto, int)
+                       {
+                         std::cerr << "signaled\n";
+                         m_signal_status.store(true);
+                         m_shutting_down.store(true);
+                         if (m_conn)
+                           m_conn->cancel();
+                         msg_queue.shutdown();
+                         //
+                       });
+
+    // --- Start worker thread ---
+    m_worker = std::thread([this, ex]
+                           { this->worker_thread_fn(ex); });
+
+    // --- Main reconnect loop ---
     for (;;)
     {
+      std::cerr << "start main loop\n";
       if (m_shutting_down.load())
-      {
         co_return;
-      }
 
+      // --- Create connection ---
+      std::cerr << "create connection\n";
       if (std::string(REDIS_USE_SSL) == "on")
       {
         asio::ssl::context ssl_ctx{asio::ssl::context::tlsv12_client};
         ssl_ctx.set_verify_mode(asio::ssl::verify_peer);
-        load_certificates(ssl_ctx,
-                          "tls/ca.crt",    // Your self-signed CA
-                          "tls/redis.crt", // Your client certificate
-                          "tls/redis.key"  // Your private key
-        );
+        load_certificates(ssl_ctx, "tls/ca.crt", "tls/redis.crt", "tls/redis.key");
         ssl_ctx.set_verify_callback(verify_certificate);
+
         m_conn = std::make_shared<redis::connection>(ex, std::move(ssl_ctx));
       }
       else
@@ -414,49 +354,171 @@ namespace RedisPublish
         m_conn = std::make_shared<redis::connection>(ex);
       }
 
-      m_conn->async_run(cfg, redis::logger{redis::logger::level::err}, asio::consign(asio::detached, m_conn));
+      // Mark connection as "attempting"
+      std::cerr << "attempt connecting asyn run\n";
+      m_conn_alive.store(true);
 
-      try
+      // --- Start async_run() ---
+      m_conn->async_run(
+          cfg,
+          redis::logger{redis::logger::level::err},
+          asio::consign(asio::detached, [this]
+                        {
+                // async_run has ended
+                std::cerr << "async run handler\n";
+                m_conn_alive.store(false); }));
+
+      // --- Confirm Redis is actually reachable ---
+      std::cerr << "confirmt connecting asyn run\n";
       {
-        co_await process_messages();
+        redis::request ping;
+        ping.push("PING");
+
+        boost::system::error_code ec;
+        co_await m_conn->async_exec(
+            ping,
+            boost::redis::ignore,
+            asio::redirect_error(asio::use_awaitable, ec));
+
+        if (ec)
+        {
+          // Redis is NOT up — reconnect immediately
+          m_conn_alive.store(false);
+
+          mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
+                                    fmt::format("Redis unreachable: {}. Retrying...", ec.message()),
+                                    std::ios::app,
+                                    true});
+
+          // small delay before retry
+          std::cerr << "reconnect waiting\n";
+          co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY))
+              .async_wait(asio::use_awaitable);
+
+          continue; // reconnect loop
+        }
       }
-      catch (const std::exception &e)
+
+      // --- Redis is confirmed UP ---
+      mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
+                                "Redis connection established.",
+                                std::ios::app,
+                                true});
+
+      // --- Wait until connection dies or shutdown requested ---
+      while (!m_shutting_down.load() && m_conn_alive.load())
       {
-        mt_logging::logger().log(
-            {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-             fmt::format("Redis publish error: {}", e.what()),
-             std::ios::app,
-             true});
+        co_await asio::steady_timer(ex, std::chrono::milliseconds(200))
+            .async_wait(asio::use_awaitable);
       }
 
       if (m_shutting_down.load())
-      {
         co_return;
-      }
 
-      // Delay before reconnecting
+      // --- Connection dropped — reconnect ---
       m_reconnect_count.fetch_add(1, std::memory_order_relaxed);
-      mt_logging::logger().log(
-          {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-           fmt::format("Publish process messages exited {} times, reconnecting in {} seconds...", m_reconnect_count.load(), CONNECTION_RETRY_DELAY),
-           std::ios::app,
-           true});
 
-      m_conn->cancel();
+      mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
+                                fmt::format("Redis disconnected. Reconnect attempt {} in {} seconds...",
+                                            m_reconnect_count.load(), CONNECTION_RETRY_DELAY),
+                                std::ios::app,
+                                true});
 
-      co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY)).async_wait(asio::use_awaitable);
+      // Delay before reconnect
+      co_await asio::steady_timer(ex, std::chrono::seconds(CONNECTION_RETRY_DELAY))
+          .async_wait(asio::use_awaitable);
 
-      if (CONNECTION_RETRY_AMOUNT == -1)
-        continue;
-      if (m_reconnect_count >= CONNECTION_RETRY_AMOUNT)
+      if (CONNECTION_RETRY_AMOUNT != -1 &&
+          m_reconnect_count >= CONNECTION_RETRY_AMOUNT)
       {
         break;
       }
     }
+
     m_signal_status.store(true);
   }
 
 #endif // defined(BOOST_ASIO_HAS_CO_AWAIT)
 
-} /* namespace RedisSubscribe */
+} /* namespace RedisPublish */
 #endif
+
+// asio::awaitable<void> Publish::process_messages()
+// {
+//   boost::system::error_code ec;
+//   redis::request ping_req;
+//   ping_req.push("PING");
+
+//   co_await m_conn->async_exec(ping_req, boost::redis::ignore, asio::redirect_error(asio::deferred, ec));
+//   if (ec)
+//   {
+//     m_is_connected.store(false);
+//     mt_logging::logger().log(
+//         {REDIS_PUBSUB_PUBLISHER_LOGFILE,
+//          "PING unsuccessful",
+//          std::ios::app,
+//          true});
+//     co_return; // Connection lost, break so we can exit function and try reconnect to redis.
+//   }
+//   else
+//   {
+//     mt_logging::logger().log(
+//         {REDIS_PUBSUB_PUBLISHER_LOGFILE,
+//          "PING successful",
+//          std::ios::app,
+//          true});
+//   }
+///////////////////////
+// asio::awaitable<void> Publish::publish_one(const PublishMessage &msg)
+// {
+//   std::cerr << "publish one\n";
+//   redis::request req;
+//   req.push("PUBLISH", msg.channel, msg.message);
+
+//   boost::system::error_code ec;
+//   redis::generic_response resp;
+
+//   co_await m_conn->async_exec(req, resp, asio::redirect_error(asio::use_awaitable, ec));
+
+//   std::cerr << "publish one after async exec\n";
+
+//   if (ec)
+//   {
+//     std::cerr << "ec found after async exec\n";
+//     // Requeue ONLY the failed message
+//     if (!m_shutting_down.load())
+//     {
+//       msg_queue.push(msg);
+//     }
+
+//     mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
+//                               fmt::format("Redis publish failed: {}. {}",
+//                                           ec.message(),
+//                                           m_shutting_down.load()
+//                                               ? "Shutdown in progress, dropping message."
+//                                               : "Requeueing message."),
+//                               std::ios::app,
+//                               true});
+
+//     co_return; // trigger reconnect
+//   }
+
+//   // Count success
+//   for (const auto &node : resp.value())
+//   {
+//     if (node.data_type == redis::resp3::type::number)
+//     {
+//       if (std::atoi(std::string(node.value).c_str()) > 0)
+//         SUCCESS_COUNT.fetch_add(1, std::memory_order_relaxed);
+//     }
+//     PUBLISHED_COUNT.fetch_add(1, std::memory_order_relaxed);
+//   }
+
+//   MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
+
+//   mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
+//                             fmt::format("Redis publish OK: {} {}",
+//                                         msg.channel, msg.message),
+//                             std::ios::app,
+//                             true});
+// }

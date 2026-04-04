@@ -3,13 +3,28 @@
 #define LIB_REDIS_PUBLISH_H_
 
 #ifdef NDEBUG
-    #include "logsync.h"
-    #define DRPSP(x)
-    #define DRPSPI(x) do { std::lock_guard<std::mutex> lock(g_rpsp_cout_mutex); x; } while(0);
+#include "logsync.h"
+#define DRPSP(x)
+#define DRPSPI(x)                                        \
+  do                                                     \
+  {                                                      \
+    std::lock_guard<std::mutex> lock(g_rpsp_cout_mutex); \
+    x;                                                   \
+  } while (0);
 #else
-    #include "logsync.h"
-    #define DRPSP(x) do { std::lock_guard<std::mutex> lock(g_rpsp_cout_mutex); x; } while(0);
-    #define DRPSPI(x) do { std::lock_guard<std::mutex> lock(g_rpsp_cout_mutex); x; } while(0);
+#include "logsync.h"
+#define DRPSP(x)                                         \
+  do                                                     \
+  {                                                      \
+    std::lock_guard<std::mutex> lock(g_rpsp_cout_mutex); \
+    x;                                                   \
+  } while (0);
+#define DRPSPI(x)                                        \
+  do                                                     \
+  {                                                      \
+    std::lock_guard<std::mutex> lock(g_rpsp_cout_mutex); \
+    x;                                                   \
+  } while (0);
 #endif
 
 #include <fstream>
@@ -124,26 +139,28 @@ namespace RedisPublish
   {
     asio::io_context m_ioc;
     std::shared_ptr<redis::connection> m_conn;
-    //boost::lockfree::spsc_queue<PublishMessage, boost::lockfree::capacity<QUEUE_LENGTH>> msg_queue; // Lock-free queue
     BlockingSPSCQueue<PublishMessage, QUEUE_LENGTH> msg_queue; // pop blocking Lock-free queue
 
-    std::atomic<bool> m_is_connected;
-    std::atomic<bool> m_signal_status;
-    std::atomic<bool> m_shutting_down;
-    std::atomic<std::sig_atomic_t> m_reconnect_count;
+    //std::atomic<bool> m_is_connected{false};
+    std::atomic<bool> m_signal_status{false};
+    std::atomic<bool> m_shutting_down{false};
+    std::atomic<bool> m_conn_alive{false};
+    std::atomic<std::sig_atomic_t> m_reconnect_count{0};
     std::thread m_sender_thread;
+    std::thread m_worker;
 
   public:
     Publish();
     virtual ~Publish();
 
     bool is_redis_signaled() { return m_signal_status.load(); };
-    bool is_redis_connected() { return m_is_connected.load(); };
+    bool is_redis_connected() { return m_conn_alive.load(); };
     void enqueue_message(const std::string &channel, const std::string &message);
 
   private:
     asio::awaitable<void> co_main();
-    asio::awaitable<void> process_messages();
+    asio::awaitable<void> publish_one(const PublishMessage &msg);
+    void worker_thread_fn(boost::asio::any_io_executor ex);
   };
 
   class Sender : public std::enable_shared_from_this<Sender>

@@ -45,8 +45,8 @@ while [ $count -le 5 ]; do
   ((count++))
 done
 
-sleep .4
-(./$bdir/clientPublisher/ClientPublish > output_publ_$$.log 2>&1 &)
+# sleep .4
+# (./$bdir/clientPublisher/ClientPublish > output_publ_$$.log 2>&1 &)
 
 cd ..
 echo "Redisnet running in "\`$srcdir\'". Use redisnet_stop.sh to end the processes running."

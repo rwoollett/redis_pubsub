@@ -8,6 +8,22 @@
 #include "../pubsub/publish/Publish.h" // RedisPublish class
 #include <boost/redis/src.hpp>         // boost redis implementation
 #include <mtlog/mt_log.hpp>
+#include <termios.h>
+#include <unistd.h>
+
+char getch()
+{
+  termios oldt, newt;
+  tcgetattr(STDIN_FILENO, &oldt); // save old settings
+  newt = oldt;
+  newt.c_lflag &= ~(ICANON | ECHO); // disable buffering + echo
+  tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+  char c = getchar(); // read one char
+
+  tcsetattr(STDIN_FILENO, TCSANOW, &oldt); // restore settings
+  return c;
+}
 
 int main(int argc, char **argv)
 {
@@ -51,7 +67,13 @@ int main(int argc, char **argv)
                                      const std::string &msg = "default message")
     {
       if (redisPublish.is_redis_connected())
+      {
         redisPublish.enqueue_message(channel, msg);
+      }
+      else
+      {
+        std::cerr << "doPublish found redis disconnection\n";
+      }
     };
 
     mt_logging::logger().log(
@@ -62,13 +84,16 @@ int main(int argc, char **argv)
     bool m_worker_shall_stop{false}; // false
     while (!m_worker_shall_stop)
     {
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
       if (redisPublish.is_redis_signaled())
       {
         m_worker_shall_stop = true;
-        continue;
+        break;
       }
 
+      std::cout << "Press any key to publish..." << std::endl;
+      char key = getch();
       if (argc > 1)
       {
         for (int i = 1; i < argc; ++i)
@@ -81,8 +106,6 @@ int main(int argc, char **argv)
         doPublish("ttt_game_Create");
         doPublish("ttt_player_Move");
       }
-
-      std::this_thread::sleep_for(std::chrono::milliseconds(5000));
     }
   }
   catch (const std::exception &e)
