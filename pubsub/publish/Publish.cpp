@@ -23,7 +23,7 @@ namespace RedisPublish
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
-  static const char *REDIS_PUBSUB_PUBLISHER_LOGFILE = std::getenv("REDIS_PUBSUB_PUBLISHER_LOGFILE");
+  static const char *MTLOG_LOGFILE = std::getenv("MTLOG_LOGFILE");
   static const int CONNECTION_RETRY_AMOUNT = -1;
   static const int CONNECTION_RETRY_DELAY = 3; // ensure longer than 1 sec to avoid reconnect ssl rteradown abort
   static const int PUBLISH_TIMEOUT_DELAY = 2;  // ensure longer than 1 sec to avoid reconnect ssl rteradown abort
@@ -74,9 +74,7 @@ namespace RedisPublish
     catch (const std::exception &e)
     {
       mt_logging::logger().log(
-          {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-           fmt::format("Publish::load certiciates {}", e.what()),
-           std::ios::app,
+          {fmt::format("Publish::load certiciates {}", e.what()),
            true});
     }
   }
@@ -86,13 +84,13 @@ namespace RedisPublish
         m_conn{},
         msg_queue{}
   {
-    if (REDIS_PUBSUB_PUBLISHER_LOGFILE == nullptr ||
+    if (MTLOG_LOGFILE == nullptr ||
         REDIS_HOST == nullptr ||
         REDIS_PORT == nullptr ||
         REDIS_PASSWORD == nullptr ||
         REDIS_USE_SSL == nullptr)
     {
-      throw std::runtime_error("Environment variables REDIS_PUBSUB_PUBLISHER_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
     MESSAGE_QUEUED_COUNT.store(0);
     MESSAGE_COUNT.store(0);
@@ -141,9 +139,7 @@ namespace RedisPublish
     if (m_sender_thread.joinable())
       m_sender_thread.join();
 
-    mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
-                              "Redis Publisher destroyed",
-                              std::ios::app,
+    mt_logging::logger().log({"Redis Publisher destroyed",
                               true});
   }
 
@@ -252,9 +248,7 @@ namespace RedisPublish
 
     MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
 
-    mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
-                              fmt::format("Redis publish OK: {} {}", msg.channel, msg.message),
-                              std::ios::app,
+    mt_logging::logger().log({fmt::format("Redis publish OK: {} {}", msg.channel, msg.message),
                               true});
     set_state(ConnectionState::Ready, "Publish OK");
   }
@@ -292,9 +286,7 @@ namespace RedisPublish
       while (msg_queue.pop(leftover))
         dropped++;
 
-      mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
-                                fmt::format("Redis publish shutdown: dropped {} pending messages", dropped),
-                                std::ios::app,
+      mt_logging::logger().log({fmt::format("Redis publish shutdown: dropped {} pending messages", dropped),
                                 true});
     }
   }
@@ -458,10 +450,8 @@ namespace RedisPublish
       return "Unknown";
     };
 
-    mt_logging::logger().log({REDIS_PUBSUB_PUBLISHER_LOGFILE,
-                              fmt::format("State: {} → {} ({})",
+    mt_logging::logger().log({fmt::format("State: {} → {} ({})",
                                           to_str(old), to_str(new_state), reason),
-                              std::ios::app,
                               true});
   }
 

@@ -40,9 +40,7 @@ public:
     for (const auto &msg : broadcast_messages)
     {
       mt_logging::logger().log(
-          {std::getenv("REDIS_PUBSUB_SUBSCRIBER_LOGFILE"),
-           fmt::format("Message: {} ", msg),
-           std::ios::app,
+          {fmt::format("Message: {} ", msg),
            true});
     }
 

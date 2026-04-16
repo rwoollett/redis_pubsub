@@ -33,7 +33,7 @@ int main(int argc, char **argv)
   const char *redis_port = std::getenv("REDIS_PORT");
   const char *redis_channel = std::getenv("REDIS_CHANNEL");
   const char *redis_password = std::getenv("REDIS_PASSWORD");
-  const char *REDIS_PUBSUB_PUBLISHER_LOGFILE = std::getenv("REDIS_PUBSUB_PUBLISHER_LOGFILE");
+  const char *MTLOG_LOGFILE = std::getenv("MTLOG_LOGFILE");
 
   if (!(redis_host && redis_port && redis_password && redis_channel))
   {
@@ -45,11 +45,7 @@ int main(int argc, char **argv)
     std::cerr << "Using command line arguments as channels to publish messages." << std::endl;
   }
 
-  mt_logging::logger().log(
-      {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-       REDIS_PUBSUB_PUBLISHER_LOGFILE,
-       std::ios::out,
-       true});
+  mt_logging::logger().log({MTLOG_LOGFILE, true});
 
   try
   {
@@ -77,9 +73,7 @@ int main(int argc, char **argv)
     };
 
     mt_logging::logger().log(
-        {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-         "Application loop stated",
-         std::ios::app,
+        {"Application loop stated",
          true});
     bool m_worker_shall_stop{false}; // false
     while (!m_worker_shall_stop)
@@ -111,26 +105,20 @@ int main(int argc, char **argv)
   catch (const std::exception &e)
   {
     mt_logging::logger().log(
-        {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-         fmt::format("Application error {}", e.what()),
-         std::ios::app,
+        {fmt::format("Application error {}", e.what()),
          true});
     return EXIT_FAILURE;
   }
   catch (const std::string &e)
   {
     mt_logging::logger().log(
-        {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-         fmt::format("Application error {}", e),
-         std::ios::app,
+        {fmt::format("Application error {}", e),
          true});
     return EXIT_FAILURE;
   }
 
   mt_logging::logger().log(
-      {REDIS_PUBSUB_PUBLISHER_LOGFILE,
-       "Exited normally",
-       std::ios::app,
+      {"Exited normally",
        true});
   return EXIT_SUCCESS;
 }

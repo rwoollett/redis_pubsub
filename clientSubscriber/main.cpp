@@ -21,7 +21,7 @@ int main(int argc, char **argv)
   const char *redis_channel = std::getenv("REDIS_CHANNEL");
   const char *redis_password = std::getenv("REDIS_PASSWORD");
   const char *redis_use_ssl = std::getenv("REDIS_USE_SSL");
-  const char *REDIS_PUBSUB_SUBSCRIBER_LOGFILE = std::getenv("REDIS_PUBSUB_SUBSCRIBER_LOGFILE");
+  const char *MTLOG_LOGFILE = std::getenv("MTLOG_LOGFILE");
 
   if (!(redis_host && redis_port && redis_password && redis_channel))
   {
@@ -29,11 +29,7 @@ int main(int argc, char **argv)
     exit(1);
   }
 
-  mt_logging::logger().log(
-      {REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-       REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-       std::ios::out,
-       true});
+  mt_logging::logger().log({MTLOG_LOGFILE, true});
 
   boost::asio::io_context main_ioc;
   AwakenerWaitable awakener;
@@ -47,18 +43,14 @@ int main(int argc, char **argv)
     redisSubscribe.main_redis();
 
     mt_logging::logger().log(
-        {REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-         "Application loop stated",
-         std::ios::out,
+        {"Application loop stated",
          true});
 
     while (!m_worker_shall_stop)
     {
       awakener.wait_broadcast();
       mt_logging::logger().log(
-          {REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-           fmt::format("Application loop awakened, awake count: {} ", awakener.awake_load()),
-           std::ios::app,
+          {fmt::format("Application loop awakened, awake count: {} ", awakener.awake_load()),
            true});
 
       if (redisSubscribe.is_signal_stopped())
@@ -68,26 +60,20 @@ int main(int argc, char **argv)
     }
 
     mt_logging::logger().log(
-        {REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-         "Exited normally",
-         std::ios::app,
+        {"Exited normally",
          true});
   }
   catch (const std::exception &e)
   {
     mt_logging::logger().log(
-        {REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-         fmt::format("Application error {} ", e.what()),
-         std::ios::app,
+        {fmt::format("Application error {} ", e.what()),
          true});
     result = EXIT_FAILURE;
   }
   catch (const std::string &e)
   {
     mt_logging::logger().log(
-        {REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-         fmt::format("Application error {} ", e),
-         std::ios::app,
+        {fmt::format("Application error {} ", e),
          true});
     result = EXIT_FAILURE;
   }

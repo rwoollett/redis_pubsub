@@ -32,16 +32,16 @@ fi
 . ./set_env.sh
 
 (docker compose up -d)
-if compgen -G "output_*" > /dev/null; then 
-  echo "Cleared output_*" 
-  rm output_* 
-fi
+# if compgen -G "output_*" > /dev/null; then 
+#   echo "Cleared output_*" 
+#   rm output_* 
+# fi
 
 count=1
 while [ $count -le 5 ]; do
   sleep .4
-  export REDIS_PUBSUB_SUBSCRIBER_LOGFILE=output_pubsub_subscriber_$count.log
-  (./$bdir/clientSubscriber/ClientSubscribe > output_scrb_$$_$count.log 2>&1 &)
+  export MTLOG_LOGFILE=output_pubsub_subscriber_$count.log
+  (./$bdir/clientSubscriber/ClientSubscribe > output_scrb_$count.log 2>&1 &)
   ((count++))
 done
 

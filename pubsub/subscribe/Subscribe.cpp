@@ -20,7 +20,7 @@ namespace RedisSubscribe
   static const char *REDIS_CHANNEL = std::getenv("REDIS_CHANNEL");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
-  static const char *REDIS_PUBSUB_SUBSCRIBER_LOGFILE = std::getenv("REDIS_PUBSUB_SUBSCRIBER_LOGFILE");
+  static const char *MTLOG_LOGFILE = std::getenv("MTLOG_LOGFILE");
 
   static const int CONNECTION_RETRY_AMOUNT = -1;
   static const int CONNECTION_RETRY_DELAY = 3;
@@ -29,9 +29,7 @@ namespace RedisSubscribe
   {
     if (broadcast_messages.empty())
       return;
-    mt_logging::logger().log({REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-                              fmt::format("- Broadcast subscribed messages {}", fmt::join(broadcast_messages, ", ")),
-                              std::ios::app,
+    mt_logging::logger().log({fmt::format("- Broadcast subscribed messages {}", fmt::join(broadcast_messages, ", ")),
                               true});
   };
 
@@ -80,9 +78,7 @@ namespace RedisSubscribe
     }
     catch (const std::exception &e)
     {
-      mt_logging::logger().log({REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-                                fmt::format("Subscribe::load certiciates {}", e.what()),
-                                std::ios::app,
+      mt_logging::logger().log({fmt::format("Subscribe::load certiciates {}", e.what()),
                                 true});
     }
   }
@@ -98,18 +94,16 @@ namespace RedisSubscribe
     m_mssage_count.store(0);
     m_state.store(SubConnectionState::Idle);
 
-    if (REDIS_PUBSUB_SUBSCRIBER_LOGFILE == nullptr ||
+    if (MTLOG_LOGFILE == nullptr ||
         REDIS_HOST == nullptr ||
         REDIS_PORT == nullptr ||
         REDIS_CHANNEL == nullptr ||
         REDIS_PASSWORD == nullptr ||
         REDIS_USE_SSL == nullptr)
     {
-      throw std::runtime_error("Environment variables REDIS_PUBSUB_SUBSCRIBER_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
-    mt_logging::logger().log({REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-                              "Subscriber created",
-                              std::ios::app,
+    mt_logging::logger().log({"Subscriber created",
                               true});
   }
 
@@ -117,9 +111,7 @@ namespace RedisSubscribe
   {
     request_stop();
     join();
-    mt_logging::logger().log({REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-                              "Subscriber destroyed",
-                              std::ios::app,
+    mt_logging::logger().log({"Subscriber destroyed",
                               true});
   }
 
@@ -195,9 +187,7 @@ namespace RedisSubscribe
         auto prevNode = (index > 0) ? resp.value().at(index - 1) : node;
         if (node.data_type == boost::redis::resp3::type::simple_error)
         {
-          mt_logging::logger().log({REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-                                    fmt::format("- Subscribe::receiver error: {}", node.value),
-                                    std::ios::app,
+          mt_logging::logger().log({fmt::format("- Subscribe::receiver error: {}", node.value),
                                     true});
           continue; // Skip to the next node
         }
@@ -229,13 +219,11 @@ namespace RedisSubscribe
       if (messages.size() > 0)
       {
         mt_logging::logger().log(
-            {REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-             fmt::format(
+            {fmt::format(
                  "{} subscribed, {} successful message received. {} messages in this response. ",
                  m_subscribed_count.load(),
                  m_mssage_count.load(),
                  messages.size()),
-             std::ios::app,
              true});
 
         m_awakener.broadcast_messages(std::move(messages));
@@ -311,9 +299,7 @@ namespace RedisSubscribe
       catch (const std::exception &e)
       {
         mt_logging::logger().log(
-            {REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-             fmt::format("Redis subscribe error: {}", e.what()),
-             std::ios::app,
+            {fmt::format("Redis subscribe error: {}", e.what()),
              true});
       }
       if (m_signal_status.load())
@@ -359,9 +345,7 @@ namespace RedisSubscribe
     catch (std::exception const &e)
     {
       mt_logging::logger().log(
-          {REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-           fmt::format("subscribe (main_redis) {}", e.what()),
-           std::ios::app,
+          {fmt::format("subscribe (main_redis) {}", e.what()),
            true});
       return 1;
     }
@@ -397,10 +381,8 @@ namespace RedisSubscribe
       return "Unknown";
     };
 
-    mt_logging::logger().log({REDIS_PUBSUB_SUBSCRIBER_LOGFILE,
-                              fmt::format("SUB State: {} → {} ({})",
+    mt_logging::logger().log({fmt::format("SUB State: {} → {} ({})",
                                           to_str(old), to_str(new_state), reason),
-                              std::ios::app,
                               true});
   }
 
