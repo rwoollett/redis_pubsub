@@ -147,7 +147,6 @@ namespace RedisPublish
   {
     if (m_signal_status.load())
       return;
-    std::cerr << "enqueue do\n";
     PublishMessage msg;
     std::strncpy(msg.channel, channel.c_str(), CHANNEL_LENGTH - 1);
     msg.channel[CHANNEL_LENGTH - 1] = '\0'; // Always null-terminate
@@ -160,8 +159,6 @@ namespace RedisPublish
 
   asio::awaitable<void> Publish::publish_one(const PublishMessage &msg)
   {
-    std::cerr << "publish one\n";
-
     auto ex = co_await asio::this_coro::executor;
     // Take a strong ref to whatever connection is current *now*
     auto conn = m_conn;
@@ -187,7 +184,6 @@ namespace RedisPublish
         timer.async_wait(
             asio::redirect_error(asio::use_awaitable, timer_ec)));
 
-    std::cerr << "publish one after async exec and timer\n";
     // Timer fired first → async_exec is considered hung
     if (result.index() == 1)
     {
@@ -247,10 +243,7 @@ namespace RedisPublish
     }
 
     MESSAGE_COUNT.fetch_sub(1, std::memory_order_relaxed);
-
-    mt_logging::logger().log({fmt::format("Redis publish OK: {} {}", msg.channel, msg.message),
-                              true});
-    set_state(ConnectionState::Ready, "Publish OK");
+    set_state(ConnectionState::Ready, fmt::format("Publish OK: {} {}", msg.channel, msg.message));
   }
 
   void Publish::worker_thread_fn(boost::asio::any_io_executor ex)
@@ -266,7 +259,6 @@ namespace RedisPublish
         break;
 
       // Hand off to Asio thread
-      std::cerr << "post to asio\n";
       asio::post(ex, [this, msg, ex]
                  { asio::co_spawn(
                        ex,

@@ -177,8 +177,6 @@ namespace RedisSubscribe
         co_return; // Connection lost, break so we can reconnect to channels.
       }
 
-      set_state(SubConnectionState::Receiving, "Processing incoming message batch");
-
       int index = 0;
       std::list<std::string> messages;
       for (const auto &node : resp.value())
@@ -218,16 +216,10 @@ namespace RedisSubscribe
 
       if (messages.size() > 0)
       {
-        mt_logging::logger().log(
-            {fmt::format(
-                 "{} subscribed, {} successful message received. {} messages in this response. ",
-                 m_subscribed_count.load(),
-                 m_mssage_count.load(),
-                 messages.size()),
-             true});
-
         m_awakener.broadcast_messages(std::move(messages));
       }
+      set_state(SubConnectionState::Ready, "Message OK");
+
       resp.value().clear();
       redis::consume_one(resp);
     }

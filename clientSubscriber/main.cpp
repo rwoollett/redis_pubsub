@@ -49,10 +49,6 @@ int main(int argc, char **argv)
     while (!m_worker_shall_stop)
     {
       awakener.wait_broadcast();
-      mt_logging::logger().log(
-          {fmt::format("Application loop awakened, awake count: {} ", awakener.awake_load()),
-           true});
-
       if (redisSubscribe.is_signal_stopped())
       {
         m_worker_shall_stop = true;

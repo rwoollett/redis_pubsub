@@ -29,21 +29,6 @@ public:
     std::unique_lock<std::mutex> cl(m_class_lock);
     if (broadcast_messages.empty())
       return;
-    // // The base class will print the messages.
-    // DRPSSI(std::cout << "- Broadcast subscribed messages\n";
-    //   for (const auto &msg : broadcast_messages) {
-    //     std::cout << msg << std::endl;
-    //   } std::cout
-    //   << std::endl;
-    //   std::cout << "******************************************************#\n\n";)
-
-    for (const auto &msg : broadcast_messages)
-    {
-      mt_logging::logger().log(
-          {fmt::format("Message: {} ", msg),
-           true});
-    }
-
     awake++;
     m_cond_not_awake.notify_one();
   };
