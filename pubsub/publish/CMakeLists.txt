@@ -12,7 +12,7 @@ add_library(RedisPubSub::RedisPublish ALIAS RedisPublish)
 target_include_directories(RedisPublish
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-        $<INSTALL_INTERFACE:include/redis_pubsub/publish>
+        $<INSTALL_INTERFACE:include/redis_pubsub/pubsub/publish>
 )
 
 target_link_libraries(RedisPublish
@@ -28,6 +28,6 @@ install(TARGETS RedisPublish
 )
 
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
-    DESTINATION include/redis_pubsub/publish
+    DESTINATION include/redis_pubsub/pubsub/publish
     FILES_MATCHING PATTERN "*.h"
 )

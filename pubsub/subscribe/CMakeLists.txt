@@ -12,7 +12,7 @@ add_library(RedisPubSub::RedisSubscribe ALIAS RedisSubscribe)
 target_include_directories(RedisSubscribe
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-        $<INSTALL_INTERFACE:include/redis_pubsub/subscribe>
+        $<INSTALL_INTERFACE:include/redis_pubsub/pubsub/subscribe>
 )
 
 target_link_libraries(RedisSubscribe
@@ -28,6 +28,6 @@ install(TARGETS RedisSubscribe
 )
 
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
-    DESTINATION include/redis_pubsub/subscribe
+    DESTINATION include/redis_pubsub/pubsub/subscribe
     FILES_MATCHING PATTERN "*.h"
 )
