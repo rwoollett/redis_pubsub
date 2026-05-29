@@ -1,4 +1,5 @@
 
+
 add_executable(ClientPublish main.cpp)
 
 target_include_directories(ClientPublish PRIVATE
@@ -10,5 +11,12 @@ set(CXX_FILESYSTEM_LIBRARIES "stdc++fs")
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
-target_link_libraries(ClientPublish PRIVATE Threads::Threads ${CMAKE_DL_LIBS} ${CXX_FILESYSTEM_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto RedisPublish)
+target_link_libraries(ClientPublish PRIVATE 
+ Threads::Threads 
+ ${CMAKE_DL_LIBS} 
+ ${CXX_FILESYSTEM_LIBRARIES} 
+ OpenSSL::SSL 
+ OpenSSL::Crypto 
+ RedisPubSub::RedisPublish
+ fmt::fmt)
 

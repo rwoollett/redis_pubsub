@@ -1,21 +1,33 @@
+file(GLOB PUBSUB_PUBLISH_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
+)
 
-add_library(RedisPublish
-  Publish.cpp
-  Publish.h
+add_library(RedisPublish STATIC
+    ${PUBSUB_PUBLISH_SOURCES}
 )
 
 add_library(RedisPubSub::RedisPublish ALIAS RedisPublish)
 
-target_include_directories(RedisPublish 
+target_include_directories(RedisPublish
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/../..      # <pubsub/...>
-    PRIVATE
-        $<BUILD_INTERFACE:${Boost_INCLUDE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<INSTALL_INTERFACE:include/redis_pubsub/publish>
 )
 
-target_link_libraries(RedisPublish 
-  PUBLIC 
-    MTLog
+target_link_libraries(RedisPublish
+    PUBLIC
+        MTLog::MTLog
 )
 
+install(TARGETS RedisPublish
+    EXPORT RedisPubSubTargets
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin
+)
 
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
+    DESTINATION include/redis_pubsub/publish
+    FILES_MATCHING PATTERN "*.h"
+)

@@ -1,6 +1,7 @@
 ﻿boost_1_86_0
 *.tar.gz
 build
+build-release
 vscode_build
 scratch.txt
 .env

@@ -17,6 +17,14 @@ cmake -DCMAKE_BUILD_TYPE=Debug -DBUILD_PUBSUB_TESTS=on -DCMAKE_INSTALL_PREFIX=/u
 cmake --build build --target all
 ```
 
+## 🧪 install
+# Install Release 
+
+Use build-release folder.
+cmake -B build-release -DCMAKE_BUILD_TYPE=Release
+sudo cmake --build build-release --target install
+
+
 ## 🧪 test
 
 No tests implemented.
