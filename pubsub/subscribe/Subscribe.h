@@ -42,6 +42,7 @@ namespace RedisSubscribe
 
   class Subscribe
   {
+    std::string m_channels;
     asio::io_context m_ioc;
     Awakener &m_awakener;
     std::shared_ptr<redis::connection> m_conn;
@@ -67,7 +68,7 @@ namespace RedisSubscribe
     std::atomic<SubConnectionState> m_state;
 
   public:
-    Subscribe(Awakener &awakener);
+    Subscribe(Awakener &awakener, const std::string &channels);
     virtual ~Subscribe();
 
     asio::awaitable<void> receiver();

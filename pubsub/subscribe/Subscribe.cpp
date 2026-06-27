@@ -17,7 +17,6 @@ namespace RedisSubscribe
 
   static const char *REDIS_HOST = std::getenv("REDIS_HOST");
   static const char *REDIS_PORT = std::getenv("REDIS_PORT");
-  static const char *REDIS_CHANNEL = std::getenv("REDIS_CHANNEL");
   static const char *REDIS_PASSWORD = std::getenv("REDIS_PASSWORD");
   static const char *REDIS_USE_SSL = std::getenv("REDIS_USE_SSL");
   static const char *MTLOG_LOGFILE = std::getenv("MTLOG_LOGFILE");
@@ -85,9 +84,11 @@ namespace RedisSubscribe
     }
   }
 
-  Subscribe::Subscribe(Awakener &awakener) : m_ioc{1},
-                                             m_awakener(awakener),
-                                             m_conn{}
+  Subscribe::Subscribe(Awakener &awakener, const std::string &channels)
+      : m_channels(channels),
+        m_ioc{1},
+        m_awakener(awakener),
+        m_conn{}
   {
     m_is_connected.store(false);
     m_signal_status.store(false);
@@ -99,11 +100,10 @@ namespace RedisSubscribe
     if (MTLOG_LOGFILE == nullptr ||
         REDIS_HOST == nullptr ||
         REDIS_PORT == nullptr ||
-        REDIS_CHANNEL == nullptr ||
         REDIS_PASSWORD == nullptr ||
         REDIS_USE_SSL == nullptr)
     {
-      throw std::runtime_error("Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_CHANNEL, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
+      throw std::runtime_error("Environment variables MTLOG_LOGFILE, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD and REDIS_USE_SSL must be set.");
     }
   }
 
@@ -140,7 +140,8 @@ namespace RedisSubscribe
 
   auto Subscribe::receiver() -> asio::awaitable<void>
   {
-    std::list<std::string> channels = split_by_comma(REDIS_CHANNEL);
+    std::list<std::string> channels = split_by_comma(m_channels.c_str());
+
     redis::request req;
     req.push_range("SUBSCRIBE", channels);
 

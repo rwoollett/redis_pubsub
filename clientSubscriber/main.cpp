@@ -33,13 +33,14 @@ int main(int argc, char **argv)
 
   boost::asio::io_context main_ioc;
   AwakenerWaitable awakener;
+  auto redisChannels = std::getenv("REDIS_CHANNEL");
   bool m_worker_shall_stop{false};
   auto main_ioc_thread = std::thread([&main_ioc]()
                                      { main_ioc.run(); });
 
   try
   {
-    RedisSubscribe::Subscribe redisSubscribe(awakener);
+    RedisSubscribe::Subscribe redisSubscribe(awakener, redisChannels);
     redisSubscribe.main_redis();
 
     while (!m_worker_shall_stop)
