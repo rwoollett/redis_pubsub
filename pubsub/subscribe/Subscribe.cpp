@@ -163,12 +163,7 @@ namespace RedisSubscribe
       {
         co_return;
       }
-      m_conn->receive(ec);
-      if (ec == redis::error::sync_receive_push_failed)
-      {
-        ec = {};
-        co_await m_conn->async_receive(asio::redirect_error(asio::use_awaitable, ec));
-      }
+      co_await m_conn->async_receive2(asio::redirect_error(asio::use_awaitable, ec));
 
       if (ec)
       {
@@ -221,7 +216,7 @@ namespace RedisSubscribe
       set_state(SubConnectionState::Ready, "Message OK");
 
       resp.value().clear();
-      redis::consume_one(resp);
+      // redis::consume_one(resp);
     }
   }
 
@@ -273,15 +268,23 @@ namespace RedisSubscribe
                           "tls/redis.key"  // Your private key
         );
         ssl_ctx.set_verify_callback(verify_certificate);
-        m_conn = std::make_shared<redis::connection>(ex, std::move(ssl_ctx));
+        m_conn = std::make_shared<redis::connection>(
+            ex,
+            std::move(ssl_ctx),
+            redis::logger{redis::logger::level::err});
       }
       else
       {
-        m_conn = std::make_shared<redis::connection>(ex);
+        m_conn = std::make_shared<redis::connection>(
+            ex,
+            redis::logger{redis::logger::level::err});
       }
 
       set_state(SubConnectionState::Connecting, "Starting async_run/Retrying connection");
-      m_conn->async_run(cfg, redis::logger{redis::logger::level::err}, asio::consign(asio::detached, m_conn));
+
+      // Run connection (no logger here)
+      m_conn->async_run(cfg, asio::consign(asio::detached, m_conn));
+
       set_state(SubConnectionState::Authenticating, "HELLO/AUTH handshake");
 
       try

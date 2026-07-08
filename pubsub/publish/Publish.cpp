@@ -122,10 +122,7 @@ namespace RedisPublish
     if (m_conn)
     {
       boost::asio::post(m_strand, [conn = m_conn]
-                        {
-                          conn->cancel();
-                          conn->reset_stream(); //
-                        });
+                        { conn->cancel(); });
     }
 
     boost::asio::post(m_strand, [this]
@@ -204,7 +201,6 @@ namespace RedisPublish
       {
         set_state(ConnectionState::Broken, "Publish timeout");
         conn->cancel();
-        conn->reset_stream();
         m_conn_alive.store(false);
       }
       co_return;
@@ -223,7 +219,6 @@ namespace RedisPublish
       set_state(ConnectionState::Broken,
                 fmt::format("Publish failed: {}", exec_ec.message()));
       conn->cancel();
-      conn->reset_stream();
       m_conn_alive.store(false);
       co_return;
     }
@@ -291,11 +286,18 @@ namespace RedisPublish
         load_certificates(ssl_ctx, "tls/ca.crt", "tls/redis.crt", "tls/redis.key");
         ssl_ctx.set_verify_callback(verify_certificate);
 
-        m_conn = std::make_shared<redis::connection>(ex, std::move(ssl_ctx));
+        m_conn = std::make_shared<redis::connection>(
+          ex, 
+          std::move(ssl_ctx),
+          redis::logger{redis::logger::level::err}
+        );
       }
       else
       {
-        m_conn = std::make_shared<redis::connection>(ex);
+        m_conn = std::make_shared<redis::connection>(
+          ex,
+          redis::logger{redis::logger::level::err}
+        );
       }
 
       set_state(ConnectionState::Connecting, "Starting async_run");
@@ -303,7 +305,6 @@ namespace RedisPublish
 
       m_conn->async_run(
           cfg,
-          redis::logger{redis::logger::level::err},
           asio::consign(asio::detached, [this]
                         {
                           if (m_shutting_down.load())
@@ -339,7 +340,6 @@ namespace RedisPublish
           set_state(ConnectionState::Broken, "Startup PING timeout");
           m_conn_alive.store(false);
           m_conn->cancel();
-          m_conn->reset_stream();
 
           set_state(ConnectionState::Reconnecting,
                     fmt::format("Retrying after failed PING in {} seconds",
@@ -362,7 +362,6 @@ namespace RedisPublish
 
           m_conn_alive.store(false);
           m_conn->cancel();
-          m_conn->reset_stream();
 
           set_state(ConnectionState::Reconnecting,
                     fmt::format("Retrying after failed PING in {} seconds",
