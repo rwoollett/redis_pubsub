@@ -1,0 +1,75 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21
+  },
+
+  "configurePresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug (Linux)",
+      "generator": "Unix Makefiles",
+      "binaryDir": "build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_PUBSUB_TESTS": "ON",
+        "CMAKE_INSTALL_PREFIX": "/usr/local"
+      }
+    },
+
+    {
+      "name": "release",
+      "displayName": "Release (Linux)",
+      "generator": "Unix Makefiles",
+      "binaryDir": "build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_PUBSUB_TESTS": "OFF",
+        "CMAKE_INSTALL_PREFIX": "/usr/local"
+      }
+    },
+
+    {
+      "name": "windows-debug",
+      "displayName": "Debug (Windows MSYS2)",
+      "generator": "Ninja",
+      "binaryDir": "build/windows-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_PUBSUB_TESTS": "ON",
+        "CMAKE_C_COMPILER": "C:/msys64/mingw64/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "C:/msys64/mingw64/bin/g++.exe",
+        "CMAKE_INSTALL_PREFIX": "C:/msys64/mingw64"
+      }
+    },
+
+    {
+      "name": "windows-release",
+      "displayName": "Release (Windows MSYS2)",
+      "generator": "Ninja",
+      "binaryDir": "build/windows-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_PUBSUB_TESTS": "OFF",
+        "CMAKE_C_COMPILER": "C:/msys64/mingw64/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "C:/msys64/mingw64/bin/g++.exe",
+        "CMAKE_INSTALL_PREFIX": "C:/msys64/mingw64"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "debug", "configurePreset": "debug" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "windows-debug", "configurePreset": "windows-debug" },
+    { "name": "windows-release", "configurePreset": "windows-release" }
+  ],
+
+  "testPresets": [
+    { "name": "debug", "configurePreset": "debug" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "windows-debug", "configurePreset": "windows-debug" },
+    { "name": "windows-release", "configurePreset": "windows-release" }
+  ]
+}

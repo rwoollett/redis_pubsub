@@ -17,6 +17,8 @@ set_env.sh
 output_pub*
 output_scrb*
 tls
+compile_commands.json
+
 
 
 
