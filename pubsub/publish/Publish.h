@@ -35,10 +35,10 @@ namespace redis = boost::redis;
 namespace RedisPublish
 {
 
-  static std::atomic<std::sig_atomic_t> MESSAGE_QUEUED_COUNT = 0;
-  static std::atomic<std::sig_atomic_t> MESSAGE_COUNT = 0;
-  static std::atomic<std::sig_atomic_t> SUCCESS_COUNT = 0;
-  static std::atomic<std::sig_atomic_t> PUBLISHED_COUNT = 0;
+  static std::atomic<sig_atomic_t> MESSAGE_QUEUED_COUNT = 0;
+  static std::atomic<sig_atomic_t> MESSAGE_COUNT = 0;
+  static std::atomic<sig_atomic_t> SUCCESS_COUNT = 0;
+  static std::atomic<sig_atomic_t> PUBLISHED_COUNT = 0;
 
   constexpr int CHANNEL_LENGTH = 64;
   constexpr int MESSAGE_LENGTH = 256;
@@ -58,7 +58,7 @@ namespace RedisPublish
     std::atomic<bool> m_signal_status{false};
     std::atomic<bool> m_shutting_down{false};
     std::atomic<bool> m_conn_alive{false};
-    std::atomic<std::sig_atomic_t> m_reconnect_count{0};
+    std::atomic<sig_atomic_t> m_reconnect_count{0};
     std::thread m_sender_thread;
     enum class ConnectionState
     {

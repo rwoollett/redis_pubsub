@@ -48,9 +48,9 @@ namespace RedisSubscribe
     std::shared_ptr<redis::connection> m_conn;
     std::atomic<bool> m_is_connected;
     std::atomic<bool> m_signal_status;
-    std::atomic<std::sig_atomic_t> m_reconnect_count;
-    std::atomic<std::sig_atomic_t> m_subscribed_count;
-    std::atomic<std::sig_atomic_t> m_mssage_count;
+    std::atomic<sig_atomic_t> m_reconnect_count;
+    std::atomic<sig_atomic_t> m_subscribed_count;
+    std::atomic<sig_atomic_t> m_mssage_count;
     std::thread m_receiver_thread;
     enum class SubConnectionState
     {
