@@ -20,6 +20,16 @@ target_link_libraries(RedisSubscribe
         MTLog::MTLog
 )
 
+if (WIN32)
+    find_package(OpenSSL REQUIRED)
+    target_link_libraries(RedisSubscribe
+        PRIVATE
+            OpenSSL::SSL
+            OpenSSL::Crypto
+            ws2_32
+    )
+endif()
+
 install(TARGETS RedisSubscribe
     EXPORT RedisPubSubTargets
     ARCHIVE DESTINATION lib

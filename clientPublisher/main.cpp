@@ -8,21 +8,32 @@
 #include "../pubsub/publish/Publish.h" // RedisPublish class
 #include <boost/redis/src.hpp>         // boost redis implementation
 #include <mtlog/mt_log.hpp>
-#include <termios.h>
-#include <unistd.h>
+#if defined(_WIN32)
+    #include <conio.h>
+    // Windows console handling
+#else
+    #include <termios.h>
+    #include <unistd.h>
+    // POSIX console handling
+#endif
+//#include <unistd.h>
 
-char getch()
+char read_getch()
 {
-  termios oldt, newt;
-  tcgetattr(STDIN_FILENO, &oldt); // save old settings
-  newt = oldt;
-  newt.c_lflag &= ~(ICANON | ECHO); // disable buffering + echo
-  tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+#if defined(_WIN32)
+    return _getch();
+#else
+    termios oldt, newt;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
 
-  char c = getchar(); // read one char
+    char c = getchar();
 
-  tcsetattr(STDIN_FILENO, TCSANOW, &oldt); // restore settings
-  return c;
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    return c;
+#endif
 }
 
 int main(int argc, char **argv)
@@ -79,7 +90,7 @@ int main(int argc, char **argv)
       }
 
       std::cout << "Press any key to publish..." << std::endl;
-      char key = getch();
+      char key = read_getch();
       if (argc > 1)
       {
         for (int i = 1; i < argc; ++i)

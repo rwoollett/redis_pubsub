@@ -20,6 +20,5 @@ target_link_libraries(ClientSubscribe PRIVATE
   OpenSSL::SSL 
   OpenSSL::Crypto 
   RedisPubSub::RedisSubscribe
-  fmt::fmt
-  )
+  fmt::fmt)
 
