@@ -5,7 +5,9 @@ project(RedisPubSub VERSION 1.0
 
 set(CMAKE_CXX_STANDARD 20) 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-cmake_policy(SET CMP0167 NEW)
+if (WIN32)
+  cmake_policy(SET CMP0167 NEW)
+endif()
 
 add_compile_definitions(HAVE_ASIO)
 
