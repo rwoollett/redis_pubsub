@@ -434,7 +434,7 @@ namespace RedisPublish
       return "Unknown";
     };
 
-    mt_logging::logger().log({fmt::format("State: {} → {} ({})",
+    mt_logging::logger().log({fmt::format("PUB State: {} → {} ({})",
                                           to_str(old), to_str(new_state), reason),
                               mt_logging::LogLevel::Info,
                               true});
