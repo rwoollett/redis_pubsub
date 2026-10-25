@@ -55,7 +55,7 @@ eval $(minikube docker-env)
 ```
 docker build -t redisnet:v1.0 -f Dockerfile .
 
-docker run --network="host" --env REDIS_HOST=0.0.0.0 --env REDIS_PORT=6379 --env REDIS_CHANNEL=csToken_request,csToken_acquire --env REDIS_PASSWORD=<password>  -w /usr/src redisnet:v1.0
+docker run --network="host" --env REDIS_HOST=0.0.0.0 --env REDIS_PORT=6379 --env REDIS_PASSWORD=<password>  -w /usr/src redisnet:v1.0
 
 ```
 
