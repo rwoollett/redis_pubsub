@@ -41,7 +41,12 @@ count=1
 while [ $count -le 5 ]; do
   sleep .4
   export MTLOG_LOGFILE=output_pubsub_subscriber_$count.log
-  (./$bdir/clientSubscriber/ClientSubscribe > output_scrb_$count.log 2>&1 &)
+  
+  (TSAN_OPTIONS="halt_on_error=0 second_deadlock_stack=1 history_size=7" \
+  setarch x86_64 -R \
+  ./$bdir/clientSubscriber/ClientSubscribe > output_scrb_$count.log 2>&1 &)
+
+#  (./$bdir/clientSubscriber/ClientSubscribe > output_scrb_$count.log 2>&1 &)
   ((count++))
 done
 
