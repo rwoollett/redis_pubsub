@@ -19,7 +19,7 @@ set(Boost_USE_STATIC_RUNTIME ON)
 
 find_package(Boost 1.86 REQUIRED)
 find_package(fmt REQUIRED)
-find_package(MTLog REQUIRED)
+# find_package(MTLog REQUIRED)
 
 option(BUILD_PUBSUB_TESTS "Build tests and include clientProducer and clientSubscriber" OFF)
 
